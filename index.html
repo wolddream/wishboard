@@ -1,0 +1,992 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>위시보드 WishBoard</title>
+<link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;위시보드&quot;,&quot;short_name&quot;:&quot;위시보드&quot;,&quot;start_url&quot;:&quot;./&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%23F7F5F0&quot;,&quot;theme_color&quot;:&quot;%23FEE500&quot;}" />
+<style>
+  :root {
+    --primary: #FEE500;
+    --primary-text: #3C1E1E;
+    --bg: #F7F5F0;
+    --card: #FFFFFF;
+    --text: #1B1B1F;
+    --text-sub: #7A7670;
+    --border: #ECE8DF;
+    --mint: #2DD4A0;
+    --danger: #FF5C5C;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", Roboto, sans-serif;
+    color: var(--text);
+    -webkit-tap-highlight-color: transparent;
+  }
+  #app-frame {
+    max-width: 460px; margin: 0 auto; min-height: 100vh; background: var(--bg);
+    position: relative; padding-bottom: 76px; overflow-x: hidden;
+  }
+  button, input, textarea { font-family: inherit; }
+  button { cursor: pointer; }
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: 50%; border: none; background: #F0EEE7;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 999px;
+    font-size: 12.5px; font-weight: 700; background: #F0EEE7; color: var(--text-sub); border: none; white-space: nowrap;
+  }
+  .chip.active { background: var(--primary); color: var(--primary-text); }
+  .scroll-x { display: flex; gap: 7px; overflow-x: auto; padding: 2px 16px 10px; }
+  .scroll-x::-webkit-scrollbar { display: none; }
+
+  /* Header */
+  #topbar {
+    position: sticky; top: 0; z-index: 20; background: var(--bg); display: flex; align-items: center;
+    justify-content: space-between; padding: 14px 16px 4px;
+  }
+  #topbar .logo { font-size: 18px; font-weight: 900; display: flex; align-items: center; gap: 4px; }
+  #topbar .actions { display: flex; gap: 8px; }
+
+  /* Cheer toast */
+  #cheer-toast {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%) translateY(-140%); z-index: 300;
+    max-width: 420px; width: calc(100% - 32px); background: #1B1B1F; color: #fff; padding: 11px 16px;
+    border-radius: 14px; font-size: 12.5px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.25); transition: transform 0.35s cubic-bezier(0.2,0.8,0.3,1);
+  }
+  #cheer-toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Wish card */
+  .wish-card {
+    background: var(--card); border-radius: 18px; padding: 16px; margin: 0 16px 12px; border: 1px solid var(--border);
+  }
+  .wish-card.style-flat { box-shadow: none; border: 1px solid var(--text); border-radius: 10px; }
+  .wish-card.style-soft { box-shadow: 0 6px 18px rgba(0,0,0,0.06); border-color: transparent; }
+  .wish-card.style-bold { border: 2px solid var(--text); border-radius: 22px; box-shadow: 4px 4px 0 var(--primary); }
+  .wish-card .row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .wish-card .avatar {
+    width: 30px; height: 30px; border-radius: 50%; background: #F0EEE7; display: flex; align-items: center;
+    justify-content: center; font-size: 15px; flex-shrink: 0;
+  }
+  .wish-card .owner { font-size: 12px; font-weight: 800; color: var(--text-sub); }
+  .wish-card .dday {
+    margin-left: auto; font-size: 11px; font-weight: 900; padding: 3px 9px; border-radius: 999px;
+    background: #FFF0E8; color: #E0692B;
+  }
+  .wish-card .dday.urgent { background: #FFE5E5; color: var(--danger); }
+  .wish-card .title { font-size: 15.5px; font-weight: 900; margin-bottom: 3px; }
+  .wish-card .subtitle { font-size: 12px; color: var(--text-sub); margin-bottom: 10px; }
+  .gauge-track { height: 9px; border-radius: 6px; background: #F0EEE7; overflow: hidden; }
+  .gauge-fill { height: 100%; border-radius: 6px; background: var(--primary); transition: width 0.5s ease; }
+  .gauge-ring { width: 40px; height: 40px; flex-shrink: 0; }
+  .stat-row { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; font-size: 11.5px; }
+  .stat-row .pct { font-weight: 900; }
+  .stat-row .amt { color: var(--text-sub); }
+
+  /* Bottom nav */
+  #bottom-nav {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px;
+    background: var(--card); border-top: 1px solid var(--border); display: flex; z-index: 50;
+    padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
+  }
+  #bottom-nav .nav-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: none;
+    font-size: 10px; font-weight: 800; color: #B7B2A8; padding: 4px 0;
+  }
+  #bottom-nav .nav-btn.active { color: var(--text); }
+  #bottom-nav .nav-btn .ic { font-size: 19px; }
+  #fab {
+    position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%); width: 54px; height: 54px; border-radius: 50%;
+    background: var(--primary); color: var(--primary-text); border: 4px solid var(--bg); font-size: 24px; font-weight: 900;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.18); z-index: 55; display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Sheets */
+  .sheet-backdrop {
+    position: fixed; inset: 0; background: rgba(20,18,14,0.45); z-index: 100; display: flex; align-items: flex-end;
+    justify-content: center;
+  }
+  .bottom-sheet {
+    width: 100%; max-width: 460px; max-height: 90dvh; overflow-y: auto; background: var(--bg);
+    border-radius: 22px 22px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 14px; animation: sheet-up 0.28s cubic-bezier(0.2,0.8,0.3,1);
+  }
+  @keyframes sheet-up { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; }
+  .sheet-head h2 { font-size: 16px; font-weight: 900; margin: 0; }
+  textarea, input[type="text"], input[type="number"] {
+    width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 13.5px;
+    background: #fff; color: var(--text);
+  }
+  textarea { resize: none; line-height: 1.5; }
+  .btn-primary {
+    width: 100%; border: none; border-radius: 14px; padding: 13px; font-size: 14.5px; font-weight: 900;
+    background: var(--primary); color: var(--primary-text);
+  }
+  .btn-primary:disabled { opacity: 0.45; }
+  .btn-ghost { background: #F0EEE7; color: var(--text); border: none; border-radius: 14px; padding: 13px; font-size: 13.5px; font-weight: 800; }
+
+  /* Quick amount chips */
+  .amount-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .amount-chip {
+    padding: 10px 2px; border-radius: 10px; border: 1.5px solid var(--border); background: #fff;
+    font-size: 11.5px; font-weight: 800; text-align: center;
+  }
+  .amount-chip.active { border-color: var(--text); background: var(--primary); color: var(--primary-text); }
+
+  /* Guestbook / timeline */
+  .cheer-item { display: flex; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .cheer-item:last-child { border-bottom: none; }
+  .cheer-item .who { font-size: 12px; font-weight: 800; }
+  .cheer-item .msg { font-size: 12px; color: var(--text-sub); margin-top: 1px; }
+  .cheer-item .amt { margin-left: auto; font-size: 12px; font-weight: 900; color: var(--text); white-space: nowrap; }
+
+  /* Occasion picker */
+  .occasion-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .occasion-tile {
+    border: 1.5px solid var(--border); border-radius: 16px; padding: 14px 6px; text-align: center; background: #fff;
+  }
+  .occasion-tile.active { border-color: var(--text); background: var(--primary); }
+  .occasion-tile .emo { font-size: 26px; }
+  .occasion-tile .lbl { font-size: 11.5px; font-weight: 800; margin-top: 4px; }
+
+  .template-card {
+    border: 1.5px solid var(--border); border-radius: 14px; padding: 12px; background: #fff; text-align: left;
+    width: 100%; display: flex; gap: 10px; align-items: center;
+  }
+  .template-card.active { border-color: var(--text); background: #FFFBEF; }
+  .template-card .emo { font-size: 22px; }
+  .template-card .t { font-size: 13px; font-weight: 800; }
+  .template-card .s { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+
+  .suggest-chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 7px 11px; border-radius: 10px; border: 1px dashed var(--primary);
+    background: #FFFBEF; font-size: 11.5px; font-weight: 700; color: #8A6D00;
+  }
+
+  /* Explore recommendation card */
+  .reco-card { background: var(--card); border-radius: 16px; padding: 14px; margin: 0 16px 12px; border: 1px solid var(--border); }
+  .reco-card .match { font-size: 11px; font-weight: 900; color: #1D9C77; background: rgba(45,212,160,0.14); padding: 2px 8px; border-radius: 999px; }
+  .reco-card .reasons { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+  .reco-card .reason { font-size: 10.5px; font-weight: 700; color: var(--text-sub); background: #F5F3EE; padding: 3px 8px; border-radius: 8px; }
+
+  /* Customization */
+  .swatch-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .swatch { width: 42px; height: 42px; border-radius: 50%; border: 3px solid transparent; }
+  .swatch.active { border-color: var(--text); }
+  .option-row { display: flex; flex-direction: column; gap: 8px; }
+  .option-item {
+    display: flex; justify-content: space-between; align-items: center; padding: 11px 13px; border-radius: 12px;
+    border: 1.5px solid var(--border); background: #fff; font-size: 13px; font-weight: 700;
+  }
+  .option-item.active { border-color: var(--text); background: #FFFBEF; }
+  .toggle { width: 40px; height: 22px; border-radius: 999px; background: #E4E0D6; position: relative; flex-shrink: 0; border: none; }
+  .toggle.on { background: var(--primary); }
+  .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left 0.15s ease; }
+  .toggle.on::after { left: 20px; }
+
+  .empty-state { text-align: center; padding: 60px 30px; color: var(--text-sub); font-size: 13px; line-height: 1.7; }
+
+  .notif-item { display: flex; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+  .notif-item .ic { font-size: 20px; flex-shrink: 0; }
+  .notif-item .txt { font-size: 12.5px; line-height: 1.5; }
+  .notif-item .time { font-size: 10.5px; color: var(--text-sub); margin-top: 2px; }
+  .notif-item.unread { background: #FFFBEF; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'wishboard_v1';
+
+  var OCCASIONS = [
+    { type: 'birthday', label: '생일 축하', emoji: '🎂', color: '#FF9F6B' },
+    { type: 'holiday', label: '시즌·홀리데이', emoji: '🎄', color: '#5FB88A' },
+    { type: 'job', label: '졸업·취업', emoji: '🎓', color: '#5B8DEF' },
+    { type: 'housewarming', label: '집들이·독립', emoji: '🏠', color: '#E0A25B' },
+    { type: 'challenge', label: '도전·버킷리스트', emoji: '🏃', color: '#E0617A' },
+    { type: 'anniversary', label: '기념일·이벤트', emoji: '💍', color: '#A67AD1' },
+  ];
+
+  var TEMPLATES = {
+    birthday: [
+      { title: '워너비 아이패드 에어 펀딩', subtitle: '작업용으로 하나 갖고 싶어요', goal: 900000, days: 20 },
+      { title: '힐링 호캉스 스테이', subtitle: '생일엔 나에게 휴식을 선물', goal: 300000, days: 15 },
+    ],
+    holiday: [
+      { title: '크리스마스 연말 홈파티 와인바 세팅', subtitle: '올해는 집에서 근사하게', goal: 250000, days: 30 },
+      { title: '새해 갓생 독서·홈오피스 루틴 팩', subtitle: '2026년엔 진짜 갓생 산다', goal: 180000, days: 40 },
+    ],
+    job: [
+      { title: '사회초년생 출근용 브리프케이스', subtitle: '첫 출근 룩 완성', goal: 220000, days: 25 },
+      { title: '개발자 인체공학 키보드 & 데스크 셋업', subtitle: '이제 진짜 개발자다', goal: 400000, days: 25 },
+    ],
+    housewarming: [
+      { title: '발뮤다 감성 홈카페 토스터', subtitle: '집들이 필수템', goal: 350000, days: 14 },
+      { title: '나만의 영화관 룸앤티비', subtitle: '주말엔 집콕 영화관', goal: 500000, days: 21 },
+    ],
+    challenge: [
+      { title: '2026 하프 마라톤 카본 러닝화 완주 프로젝트', subtitle: '완주하고 만다', goal: 280000, days: 8 },
+      { title: '제주 서핑 캠프', subtitle: '버킷리스트 하나 지우기', goal: 450000, days: 35 },
+    ],
+    anniversary: [
+      { title: '1주년 제주 감성 스냅 촬영 & 포토북', subtitle: '우리의 1년을 기록해요', goal: 380000, days: 18 },
+    ],
+  };
+
+  // 위시 설명글 키워드 -> 함께 보태기 좋은 실용 아이템 제안 (Step 3 지능형 기프트 아이디어 분석)
+  var KEYWORD_SUGGESTIONS = [
+    { keys: ['여행', '캠프', '호캉스', '제주'], items: ['여행자 보험', '캐리어 태그', '휴대용 파우치'] },
+    { keys: ['마라톤', '러닝', '완주'], items: ['기능성 양말', '에너지젤', '러닝 벨트'] },
+    { keys: ['카메라', '촬영', '스냅'], items: ['메모리카드', '미니 삼각대', '렌즈 클리너'] },
+    { keys: ['카페', '커피', '토스터', '홈카페'], items: ['원두 구독권', '드리퍼 세트', '머그컵'] },
+    { keys: ['개발', '키보드', '데스크', '출근'], items: ['모니터암', '손목 거치대', '데스크 매트'] },
+    { keys: ['생일', '축하'], items: ['미니 케이크', '축하 카드', '풍선 세트'] },
+  ];
+
+  var THEME_COLORS = [
+    { id: 'kakao', label: '카카오 옐로우', primary: '#FEE500', text: '#3C1E1E' },
+    { id: 'butter', label: '버터 크림', primary: '#FFE9B8', text: '#5A4321' },
+    { id: 'midnight', label: '미드나잇 다크', primary: '#2B2A4A', text: '#FFFFFF' },
+    { id: 'lavender', label: '라벤더 미스트', primary: '#C9B6E4', text: '#3A2C52' },
+    { id: 'mint', label: '소프트 민트', primary: '#B8E8D8', text: '#1C4B3B' },
+  ];
+  var PROFILE_LAYOUTS = [
+    { id: 'bento', label: '모던 벤토' },
+    { id: 'minimal', label: '미니멀 클린' },
+    { id: 'avatar', label: '아바타 포커스' },
+  ];
+  var CARD_STYLES = [
+    { id: 'soft', label: '소프트 쉐도우' },
+    { id: 'flat', label: '플랫 1px 라인' },
+    { id: 'bold', label: '볼드 팝' },
+  ];
+  var CATEGORY_FILTERS = [
+    { type: 'all', label: '전체' },
+    { type: 'birthday', label: '🎂 생일' },
+    { type: 'holiday', label: '🎄 홀리데이' },
+    { type: 'job', label: '🎓 취업' },
+    { type: 'housewarming', label: '🏠 집들이' },
+    { type: 'challenge', label: '🏃 도전' },
+    { type: 'anniversary', label: '💍 기념일' },
+  ];
+  var BUDGET_TIERS = [
+    { id: 'all', label: '전체', min: 0, max: Infinity },
+    { id: 'small', label: '소액 보태기 (~1.5만)', min: 0, max: 15000 },
+    { id: 'practical', label: '실속형 (1.5~3.5만)', min: 15000, max: 35000 },
+    { id: 'sincere', label: '정성 선물 (3.5~6만)', min: 35000, max: 60000 },
+    { id: 'premium', label: '프리미엄 (6만~)', min: 60000, max: Infinity },
+  ];
+
+  function uid(prefix) { return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function esc(str) {
+    if (str == null) return '';
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function formatWon(n) { return Number(n || 0).toLocaleString() + '원'; }
+  function daysUntil(dateStr) {
+    var diff = new Date(dateStr + 'T00:00:00') - new Date(new Date().toDateString());
+    return Math.round(diff / 86400000);
+  }
+  function addDays(days) {
+    var d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // 단체 위시는 ownerId 한 명이 아니라 members[] 전체가 "내 위시"일 수 있다 - 개인 위시의
+  // ownerId 비교와 단체 위시의 members 소속 여부 확인을 한 곳에서 처리해 여기저기 흩어진
+  // "ownerId === state.user.id" 비교가 단체 위시를 놓치지 않도록 한다.
+  function isWishMine(wish) {
+    if (wish.type === 'group') return (wish.members || []).some(function (m) { return m.id === state.user.id; });
+    return wish.ownerId === state.user.id;
+  }
+
+  function wishOwnerLabel(wish) {
+    if (wish.type === 'group') return esc(wish.groupName || '단체') + ' 위시';
+    return esc(wish.ownerName) + '님의 위시';
+  }
+
+  // 단체 위시는 멤버 아바타를 겹쳐서(최대 3개 + 나머지 수) 보여줘 개인 위시와 한눈에 구분되게 한다.
+  function wishAvatarHtml(wish, sizePx) {
+    var s = sizePx || 30;
+    var fontSize = Math.round(s * 0.5);
+    if (wish.type === 'group') {
+      var members = wish.members || [];
+      var shown = members.slice(0, 3);
+      var stack = shown.map(function (m, i) {
+        return '<div class="avatar" style="width:' + s + 'px; height:' + s + 'px; font-size:' + fontSize + 'px;' + (i > 0 ? ' margin-left:-10px;' : '') + ' border:2px solid var(--card); flex-shrink:0;">' + m.avatar + '</div>';
+      }).join('');
+      var extra = members.length > 3 ? '<span style="font-size:10px; color:var(--text-sub); font-weight:800; margin-left:4px;">+' + (members.length - 3) + '</span>' : '';
+      return '<div style="display:flex; align-items:center;">' + stack + extra + '</div>';
+    }
+    return '<div class="avatar" style="width:' + s + 'px; height:' + s + 'px; font-size:' + fontSize + 'px;">' + wish.ownerAvatar + '</div>';
+  }
+
+  function seedState() {
+    var meId = 'me';
+    var friends = [
+      { id: 'f1', name: '민호', avatar: '🧑‍💻', interests: ['IT', '커피', '러닝'] },
+      { id: 'f2', name: '서연', avatar: '🎨', interests: ['여행', '사진', '인테리어'] },
+      { id: 'f3', name: '도윤', avatar: '🏋️', interests: ['스포츠', '마라톤', '캠핑'] },
+      { id: 'f4', name: '유진', avatar: '📚', interests: ['독서', '홈카페', 'IT'] },
+    ];
+    var wishes = [
+      {
+        id: uid('w'), ownerId: 'f2', ownerName: '서연', ownerAvatar: '🎨', title: '제주도 한 달 살기 & 원격 작업',
+        subtitle: '바다 보이는 오피스텔에서 30일간 글 쓰고 일하기', story: '오래 꿈꿔온 제주 한 달 살기, 조금씩 보태주시면 힘이 나요!',
+        emoji: '🏝️', category: 'challenge', goalAmount: 1200000, currentAmount: 840000,
+        deadline: addDays(28), createdAt: Date.now() - 86400000 * 5,
+        contributions: [
+          { id: uid('c'), fromName: '민호', amount: 50000, message: '제주 잘 다녀와!', anonymous: false, at: Date.now() - 86400000 * 2 },
+          { id: uid('c'), fromName: '익명', amount: 30000, message: '응원할게요', anonymous: true, at: Date.now() - 86400000 },
+        ],
+      },
+      {
+        id: uid('w'), ownerId: 'f1', ownerName: '민호', ownerAvatar: '🧑‍💻', title: '소니 미러리스 카메라 업그레이드',
+        subtitle: '사진 취미를 위한 첫 풀프레임', story: '사진 찍는 게 요즘 제일 즐거운 취미예요. 조금만 보태주세요!',
+        emoji: '📷', category: 'challenge', goalAmount: 2000000, currentAmount: 1200000,
+        deadline: addDays(45), createdAt: Date.now() - 86400000 * 10,
+        contributions: [{ id: uid('c'), fromName: '유진', amount: 40000, message: '좋은 사진 기대할게!', anonymous: false, at: Date.now() - 86400000 * 3 }],
+      },
+      {
+        id: uid('w'), ownerId: 'f3', ownerName: '도윤', ownerAvatar: '🏋️', title: '2026 도쿄 마라톤 완주 프로젝트',
+        subtitle: '풀코스 첫 완주 도전', story: '풀코스는 처음이라 장비 좀 제대로 갖추고 싶어요!',
+        emoji: '🏃', category: 'challenge', goalAmount: 500000, currentAmount: 400000,
+        deadline: addDays(8), createdAt: Date.now() - 86400000 * 15,
+        contributions: [],
+      },
+      {
+        id: uid('w'), ownerId: 'f4', ownerName: '유진', ownerAvatar: '📚', title: '생일 - 힐링 호캉스 스테이',
+        subtitle: '생일엔 나에게 휴식을 선물', story: '', emoji: '🎂', category: 'birthday',
+        goalAmount: 300000, currentAmount: 90000, deadline: addDays(15), createdAt: Date.now() - 86400000 * 2,
+        contributions: [],
+      },
+      {
+        id: uid('w'), ownerId: 'f1', ownerName: '민호', ownerAvatar: '🧑‍💻',
+        type: 'group', groupName: '개발자 모임', members: [
+          { id: 'f1', name: '민호', avatar: '🧑‍💻' }, { id: 'f4', name: '유진', avatar: '📚' },
+        ],
+        title: '연말 팀 워크샵 펀딩', subtitle: '개발자 모임 다 같이 워크샵 다녀오기', story: '연말에 다 같이 워크샵 가서 회고도 하고 맛있는 것도 먹으려고요!',
+        emoji: '🎉', category: 'holiday', goalAmount: 600000, currentAmount: 180000,
+        deadline: addDays(20), createdAt: Date.now() - 86400000 * 3,
+        contributions: [],
+      },
+    ];
+    return {
+      user: { id: meId, name: '나', avatar: '😊' },
+      friends: friends,
+      wishes: wishes,
+      notifications: [
+        { id: uid('n'), type: 'gift_arrived', text: '민호님이 "소니 미러리스 카메라 업그레이드"에 40,000원을 보탰어요', at: Date.now() - 86400000, read: false },
+        { id: uid('n'), type: 'dday_soon', text: '도윤님의 "도쿄 마라톤" 위시가 D-8이에요, 지금 보태보세요!', at: Date.now() - 3600000 * 5, read: false },
+        { id: uid('n'), type: 'cheer_comment', text: '서연님의 위시에 응원 댓글이 달렸어요', at: Date.now() - 3600000 * 20, read: true },
+      ],
+      myGifts: [],
+      customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
+      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null },
+    };
+  }
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return seedState();
+  }
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  var state = loadState();
+
+  function applyTheme() {
+    var theme = THEME_COLORS.filter(function (t) { return t.id === state.customization.themeColor; })[0] || THEME_COLORS[0];
+    document.documentElement.style.setProperty('--primary', theme.primary);
+    document.documentElement.style.setProperty('--primary-text', theme.text);
+  }
+
+  // ============ Render engine (focus/selection preserving full re-render) ============
+  function render() {
+    // IME(한글 등) 조합 중에는 절대 DOM을 재구성하지 않는다 - render()가 #root를 통째로 교체해
+    // 입력 중인 <textarea>/<input>을 매번 새로 만들면 조합 세션이 끊겨 자모가 합쳐지지 않고
+    // 그대로 찍힌다. 조합이 끝나면(compositionend) 다시 render()를 호출해 최신 상태를 반영한다.
+    var composingEl = document.activeElement;
+    if (composingEl && composingEl.dataset && composingEl.dataset.composing === 'true') return;
+
+    applyTheme();
+    var active = document.activeElement;
+    var activeId = active && active.id;
+    var selStart = active && ('selectionStart' in active) ? active.selectionStart : null;
+    var selEnd = active && ('selectionEnd' in active) ? active.selectionEnd : null;
+    var scrollables = Array.prototype.slice.call(document.querySelectorAll('.bottom-sheet, .scroll-x'));
+    var savedScroll = scrollables.map(function (el) { return { top: el.scrollTop, left: el.scrollLeft }; });
+
+    document.getElementById('root').innerHTML = renderApp();
+
+    if (activeId) {
+      var el = document.getElementById(activeId);
+      if (el) {
+        el.focus();
+        if (selStart != null && 'setSelectionRange' in el) {
+          try { el.setSelectionRange(selStart, selEnd); } catch (e) {}
+        }
+      }
+    }
+    var newScrollables = Array.prototype.slice.call(document.querySelectorAll('.bottom-sheet, .scroll-x'));
+    newScrollables.forEach(function (el, i) {
+      if (savedScroll[i]) { el.scrollTop = savedScroll[i].top; el.scrollLeft = savedScroll[i].left; }
+    });
+  }
+
+  function showToast(text) {
+    state.ui.toast = text;
+    render();
+    clearTimeout(window._toastTimer);
+    var toastEl = document.getElementById('cheer-toast');
+    if (toastEl) requestAnimationFrame(function () { toastEl.classList.add('show'); });
+    window._toastTimer = setTimeout(function () {
+      var el = document.getElementById('cheer-toast');
+      if (el) el.classList.remove('show');
+      setTimeout(function () { state.ui.toast = null; render(); }, 350);
+    }, 2600);
+  }
+
+  // ============ Actions ============
+  window.setTab = function (tab) { state.ui.tab = tab; render(); };
+  window.setCategoryFilter = function (c) { state.ui.categoryFilter = c; render(); };
+  window.setBudgetTier = function (b) { state.ui.budgetTier = b; render(); };
+
+  window.openWishDetail = function (id) {
+    state.ui.wishDetailId = id;
+    state.ui.giftDraft = { amount: 3000, customAmount: '', message: '', anonymous: false };
+    render();
+  };
+  window.closeWishDetail = function () { state.ui.wishDetailId = null; state.ui.giftDraft = null; render(); };
+
+  window.pickGiftAmount = function (amount) {
+    state.ui.giftDraft.amount = amount;
+    state.ui.giftDraft.customAmount = '';
+    render();
+  };
+  window.setCustomGiftAmount = function (el) {
+    var v = el.value.replace(/[^0-9]/g, '');
+    el.value = v;
+    state.ui.giftDraft.customAmount = v;
+    state.ui.giftDraft.amount = 0;
+  };
+  window.setGiftMessage = function (el) { state.ui.giftDraft.message = el.value; };
+  window.toggleGiftAnonymous = function () { state.ui.giftDraft.anonymous = !state.ui.giftDraft.anonymous; render(); };
+
+  window.sendGift = function () {
+    var wish = state.wishes.filter(function (w) { return w.id === state.ui.wishDetailId; })[0];
+    if (!wish) return;
+    var draft = state.ui.giftDraft;
+    var amount = draft.customAmount ? Number(draft.customAmount) : draft.amount;
+    if (!amount || amount < 100) { showToast('보탤 금액을 선택하거나 입력해주세요'); return; }
+    var contribution = {
+      id: uid('c'), fromName: draft.anonymous ? '익명' : state.user.name, amount: amount,
+      message: draft.message.trim(), anonymous: draft.anonymous, at: Date.now(),
+    };
+    wish.contributions.unshift(contribution);
+    wish.currentAmount = Math.min(wish.goalAmount, wish.currentAmount + amount);
+    state.myGifts.unshift({ id: uid('g'), toWishId: wish.id, toName: wish.ownerName, wishTitle: wish.title, category: wish.category, amount: amount, at: Date.now() });
+    state.notifications.unshift({ id: uid('n'), type: 'gift_arrived', text: (draft.anonymous ? '익명의 친구' : state.user.name) + '님이 "' + wish.title + '"에 ' + formatWon(amount) + '을 보탰어요', at: Date.now(), read: true });
+    closeWishDetail();
+    saveState();
+    showToast('🎉 카카오페이로 ' + formatWon(amount) + ' 보탰어요!');
+  };
+
+  // ---- Create wizard ----
+  // 5단계 위저드: ① 개인/단체 선택 ② 테마(occasion) ③ 템플릿 ④ 상세정보 ⑤ 확인
+  window.openCreateWizard = function () {
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', memberIds: [], occasion: null, templateIdx: null, title: '', subtitle: '', story: '', goal: 300000, days: 14, emoji: '🎁', suggestedItems: [] };
+    render();
+  };
+  window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
+
+  window.setWizardType = function (type) {
+    var w = state.ui.createWizard;
+    w.wishType = type;
+    render();
+  };
+  window.toggleWizardMember = function (friendId) {
+    var w = state.ui.createWizard;
+    var idx = w.memberIds.indexOf(friendId);
+    if (idx >= 0) w.memberIds.splice(idx, 1); else w.memberIds.push(friendId);
+    render();
+  };
+
+  window.pickOccasion = function (type) {
+    var w = state.ui.createWizard;
+    w.occasion = type;
+    w.emoji = OCCASIONS.filter(function (o) { return o.type === type; })[0].emoji;
+    w.step = 3;
+    render();
+  };
+
+  window.pickTemplate = function (idx) {
+    var w = state.ui.createWizard;
+    var tpl = TEMPLATES[w.occasion][idx];
+    w.templateIdx = idx;
+    w.title = tpl.title;
+    w.subtitle = tpl.subtitle;
+    w.goal = tpl.goal;
+    w.days = tpl.days;
+    w.story = '';
+    w.step = 4;
+    render();
+  };
+  window.skipTemplateCustom = function () {
+    var w = state.ui.createWizard;
+    w.templateIdx = null;
+    w.title = '';
+    w.subtitle = '';
+    w.step = 4;
+    render();
+  };
+
+  window.wizardSetField = function (field, el) { setStateAtPath('ui.createWizard.' + field, el.value); };
+  window.wizardSetStory = function (el) {
+    var w = state.ui.createWizard;
+    w.story = el.value;
+    w.suggestedItems = computeSuggestions(el.value);
+    render();
+  };
+  function computeSuggestions(text) {
+    var found = [];
+    KEYWORD_SUGGESTIONS.forEach(function (group) {
+      var hit = group.keys.some(function (k) { return text.indexOf(k) >= 0; });
+      if (hit) found = found.concat(group.items);
+    });
+    return found.slice(0, 4);
+  }
+  window.applySuggestion = function (item) {
+    var w = state.ui.createWizard;
+    w.story = (w.story || '').trim() + (w.story && w.story.trim() ? '\n' : '') + '🎁 추천 보태기 아이템: ' + item;
+    render();
+  };
+
+  window.wizardNextStep = function () {
+    var w = state.ui.createWizard;
+    if (w.step === 1 && w.wishType === 'group' && (!w.groupName.trim() || w.memberIds.length === 0)) {
+      showToast('그룹 이름과 함께할 친구를 선택해주세요');
+      return;
+    }
+    if (w.step === 4 && !w.title.trim()) { showToast('제목을 입력해주세요'); return; }
+    w.step = w.step + 1;
+    render();
+  };
+  window.wizardPrevStep = function () {
+    var w = state.ui.createWizard;
+    w.step = Math.max(1, w.step - 1);
+    render();
+  };
+
+  window.finishWizard = function () {
+    var w = state.ui.createWizard;
+    var isGroup = w.wishType === 'group';
+    var members = isGroup
+      ? [{ id: state.user.id, name: state.user.name, avatar: state.user.avatar }].concat(
+          w.memberIds.map(function (id) { return state.friends.filter(function (f) { return f.id === id; })[0]; })
+            .filter(Boolean)
+            .map(function (f) { return { id: f.id, name: f.name, avatar: f.avatar }; })
+        )
+      : [];
+    var wish = {
+      id: uid('w'), ownerId: state.user.id, ownerName: state.user.name, ownerAvatar: state.user.avatar,
+      type: isGroup ? 'group' : 'personal', groupName: isGroup ? w.groupName.trim() : '', members: members,
+      title: w.title.trim(), subtitle: w.subtitle.trim(), story: w.story.trim(), emoji: w.emoji, category: w.occasion,
+      goalAmount: Number(w.goal) || 100000, currentAmount: 0, deadline: addDays(Number(w.days) || 14),
+      createdAt: Date.now(), contributions: [],
+    };
+    state.wishes.unshift(wish);
+    state.ui.createWizard = null;
+    saveState();
+    showToast(isGroup ? '✨ 단체 위시가 등록됐어요!' : '✨ 위시가 등록됐어요!');
+  };
+
+  // ---- Customization ----
+  window.openCustomize = function () { state.ui.customizeOpen = true; render(); };
+  window.closeCustomize = function () { state.ui.customizeOpen = false; render(); saveState(); };
+  window.setThemeColor = function (id) { state.customization.themeColor = id; render(); };
+  window.setProfileLayout = function (id) { state.customization.profileLayout = id; render(); };
+  window.setCardStyle = function (id) { state.customization.cardStyle = id; render(); };
+  window.toggleWidget = function (key) { state.customization.widgets[key] = !state.customization.widgets[key]; render(); };
+
+  window.markNotifRead = function (id) {
+    var n = state.notifications.filter(function (x) { return x.id === id; })[0];
+    if (n) n.read = true;
+    render(); saveState();
+  };
+
+  // path 유틸 (텍스트 입력 상태 동기화용)
+  function setStateAtPath(path, value) {
+    var parts = path.split('.');
+    var obj = state;
+    for (var i = 0; i < parts.length - 1; i++) obj = obj[parts[i]];
+    obj[parts[parts.length - 1]] = value;
+  }
+
+  // ============ AI 선물 추천 엔진 (규칙 기반 5차원 스코어링) ============
+  function computeRecommendations(budgetTier) {
+    var tier = BUDGET_TIERS.filter(function (t) { return t.id === budgetTier; })[0] || BUDGET_TIERS[0];
+    var candidates = state.wishes.filter(function (w) { return !isWishMine(w) && w.currentAmount < w.goalAmount; });
+    var results = candidates.map(function (wish) {
+      var friend = state.friends.filter(function (f) { return f.id === wish.ownerId; })[0] || { interests: [] };
+      var remain = wish.goalAmount - wish.currentAmount;
+      var remainRatio = 1 - wish.currentAmount / wish.goalAmount; // 남은 비율이 클수록(막 시작) 관련도 UP은 아니고, 적당히 반영
+      var dday = daysUntil(wish.deadline);
+
+      // 과거 이 친구에게 보낸 선물 이력(카테고리 매칭) 점수
+      var pastMatch = state.myGifts.filter(function (g) { return g.toName === wish.ownerName; });
+      var categoryMatchPast = pastMatch.some(function (g) { return g.category === wish.category; });
+
+      var interestMatch = (friend.interests || []).some(function (tag) {
+        return wish.title.indexOf(tag) >= 0 || wish.subtitle.indexOf(tag) >= 0 || wish.category === 'challenge' && tag === '러닝';
+      });
+
+      var score = 0;
+      var reasons = [];
+      // 1. 위시 연계 (남은 목표금액 대비 진행도)
+      var progressPct = Math.round((wish.currentAmount / wish.goalAmount) * 100);
+      if (progressPct >= 50 && progressPct < 100) { score += 28; reasons.push('목표 ' + progressPct + '% 달성 · 조금만 더 보태면 완주'); }
+      else { score += 14; reasons.push('현재 ' + progressPct + '% 달성 중'); }
+      // 2. 과거 선물 이력
+      if (categoryMatchPast) { score += 22; reasons.push('평소 이 카테고리 선물을 자주 보내셨어요'); }
+      else if (pastMatch.length > 0) { score += 12; reasons.push(wish.ownerName + '님께 이전에도 선물한 적 있어요'); }
+      // 3. 취향 일치도
+      if (interestMatch) { score += 24; reasons.push(wish.ownerName + '님의 관심사(' + (friend.interests || []).join('/') + ')와 일치'); }
+      else { score += 8; }
+      // 4. 타이밍(디데이)
+      if (dday <= 10) { score += 26; reasons.push('D-' + dday + ', 골든타임이에요'); }
+      else if (dday <= 25) { score += 14; reasons.push('D-' + dday + ', 여유 있게 준비 가능'); }
+      else { score += 6; reasons.push('D-' + dday); }
+
+      var suggestedAmount = Math.min(remain, tier.max === Infinity ? 30000 : Math.round((tier.min + Math.min(tier.max, remain)) / 2) || 10000);
+      return {
+        wish: wish, friend: friend, score: Math.min(99, score), reasons: reasons.slice(0, 4),
+        suggestedAmount: Math.max(1000, Math.round(suggestedAmount / 1000) * 1000),
+      };
+    });
+    if (tier.id !== 'all') {
+      results = results.filter(function (r) { return r.suggestedAmount >= tier.min && r.suggestedAmount <= (tier.max === Infinity ? 1e9 : tier.max); });
+    }
+    results.sort(function (a, b) { return b.score - a.score; });
+    return results;
+  }
+
+  // ============ Render templates ============
+  function renderApp() {
+    var html = '';
+    html += renderTopbar();
+    if (state.ui.tab === 'home') html += renderHome();
+    else if (state.ui.tab === 'explore') html += renderExplore();
+    else if (state.ui.tab === 'notif') html += renderNotifications();
+    else if (state.ui.tab === 'my') html += renderMyPage();
+    html += renderBottomNav();
+    if (state.ui.tab === 'home') html += '<button id="fab" onclick="openCreateWizard()">+</button>';
+    if (state.ui.wishDetailId) html += renderWishDetailSheet();
+    if (state.ui.createWizard) html += renderCreateWizard();
+    if (state.ui.customizeOpen) html += renderCustomizeSheet();
+    if (state.ui.toast) html += '<div id="cheer-toast">🔔 ' + esc(state.ui.toast) + '</div>';
+    return '<div id="app-frame">' + html + '</div>';
+  }
+
+  function renderTopbar() {
+    var titles = { home: '위시보드', explore: '탐색', notif: '알림', my: '마이페이지' };
+    var unread = state.notifications.filter(function (n) { return !n.read; }).length;
+    return '' +
+      '<div id="topbar">' +
+        '<div class="logo">🎁 ' + esc(titles[state.ui.tab]) + '</div>' +
+        '<div class="actions">' +
+          '<button class="icon-btn" onclick="setTab(\'notif\')" style="position:relative;">🔔' +
+            (unread ? '<span style="position:absolute; top:2px; right:3px; width:7px; height:7px; border-radius:50%; background:var(--danger);"></span>' : '') +
+          '</button>' +
+          '<button class="icon-btn" onclick="openCustomize()">🎨</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function ddayBadge(deadline) {
+    var d = daysUntil(deadline);
+    if (!state.customization.widgets.dday) return '';
+    var label = d <= 0 ? '오늘 마감' : 'D-' + d;
+    return '<span class="dday' + (d <= 10 ? ' urgent' : '') + '">' + label + '</span>';
+  }
+
+  function wishCardHtml(wish) {
+    var pct = Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100));
+    var cardCls = 'wish-card style-' + state.customization.cardStyle;
+    return '' +
+      '<div class="' + cardCls + '" onclick="openWishDetail(\'' + wish.id + '\')">' +
+        '<div class="row-top">' +
+          wishAvatarHtml(wish, 30) +
+          '<div class="owner">' + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + '</div>' +
+          ddayBadge(wish.deadline) +
+        '</div>' +
+        '<div class="title">' + wish.emoji + ' ' + esc(wish.title) + '</div>' +
+        '<div class="subtitle">' + esc(wish.subtitle) + '</div>' +
+        '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
+        '<div class="stat-row"><span class="pct">' + pct + '% 달성</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
+      '</div>';
+  }
+
+  function renderHome() {
+    var filtered = state.wishes.filter(function (w) {
+      return state.ui.categoryFilter === 'all' || w.category === state.ui.categoryFilter;
+    });
+    var chips = CATEGORY_FILTERS.map(function (c) {
+      return '<button class="chip' + (state.ui.categoryFilter === c.type ? ' active' : '') + '" onclick="setCategoryFilter(\'' + c.type + '\')">' + esc(c.label) + '</button>';
+    }).join('');
+    var cards = filtered.length
+      ? filtered.map(wishCardHtml).join('')
+      : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요</div>';
+    return '<div class="scroll-x">' + chips + '</div>' + cards;
+  }
+
+  function renderExplore() {
+    var tier = state.ui.budgetTier;
+    var recos = computeRecommendations(tier);
+    var chips = BUDGET_TIERS.map(function (b) {
+      return '<button class="chip' + (tier === b.id ? ' active' : '') + '" onclick="setBudgetTier(\'' + b.id + '\')">' + esc(b.label) + '</button>';
+    }).join('');
+    var cards = recos.length ? recos.map(function (r) {
+      var pct = Math.round((r.wish.currentAmount / r.wish.goalAmount) * 100);
+      return '' +
+        '<div class="reco-card">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+            '<div style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:800;">' + wishAvatarHtml(r.wish, 22) + (r.wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(r.wish) + '</div>' +
+            '<span class="match">매칭 ' + r.score + '%</span>' +
+          '</div>' +
+          '<div style="font-size:14.5px; font-weight:900; margin-top:6px;">' + r.wish.emoji + ' ' + esc(r.wish.title) + '</div>' +
+          '<div class="gauge-track" style="margin-top:8px;"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
+          '<div class="reasons">' + r.reasons.map(function (rs) { return '<span class="reason">' + esc(rs) + '</span>'; }).join('') + '</div>' +
+          '<button class="btn-primary" style="margin-top:4px;" onclick="openWishDetail(\'' + r.wish.id + '\')">💛 카카오페이로 ' + formatWon(r.suggestedAmount) + ' 보태기</button>' +
+        '</div>';
+    }).join('') : '<div class="empty-state">🔍<br/>이 예산대에 맞는 추천이 없어요</div>';
+    return '<div style="padding:2px 16px 8px; font-size:12px; color:var(--text-sub);">친구 위시·과거 선물·취향·타이밍을 분석해 추천해요</div><div class="scroll-x">' + chips + '</div>' + cards;
+  }
+
+  function renderNotifications() {
+    if (!state.notifications.length) return '<div class="empty-state">🔔<br/>아직 알림이 없어요</div>';
+    var icons = { gift_arrived: '🎉', dday_soon: '⏰', cheer_comment: '💬' };
+    return state.notifications.map(function (n) {
+      return '' +
+        '<div class="notif-item' + (n.read ? '' : ' unread') + '" onclick="markNotifRead(\'' + n.id + '\')">' +
+          '<div class="ic">' + (icons[n.type] || '🔔') + '</div>' +
+          '<div class="txt">' + esc(n.text) + '<div class="time">' + timeAgo(n.at) + '</div></div>' +
+        '</div>';
+    }).join('');
+  }
+
+  function timeAgo(ts) {
+    var diff = Date.now() - ts;
+    var h = Math.floor(diff / 3600000);
+    if (h < 1) return '방금 전';
+    if (h < 24) return h + '시간 전';
+    return Math.floor(h / 24) + '일 전';
+  }
+
+  function renderMyPage() {
+    var totalAmount = state.myGifts.reduce(function (s, g) { return s + g.amount; }, 0);
+    var myWishes = state.wishes.filter(isWishMine);
+    var layout = state.customization.profileLayout;
+    var head = layout === 'avatar'
+      ? '<div style="text-align:center; padding:24px 16px 8px;"><div style="font-size:52px;">' + state.user.avatar + '</div><div style="font-size:16px; font-weight:900; margin-top:6px;">' + esc(state.user.name) + '</div></div>'
+      : '<div style="display:flex; align-items:center; gap:12px; padding:20px 16px 8px;"><div class="avatar" style="width:52px; height:52px; font-size:26px;">' + state.user.avatar + '</div><div style="font-size:16px; font-weight:900;">' + esc(state.user.name) + '</div></div>';
+    var statCards = '' +
+      '<div style="display:flex; gap:10px; padding:0 16px 16px;">' +
+        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 선물</div><div style="font-size:18px; font-weight:900; margin-top:4px;">' + state.myGifts.length + '건</div></div>' +
+        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 금액</div><div style="font-size:18px; font-weight:900; margin-top:4px;">' + formatWon(totalAmount) + '</div></div>' +
+      '</div>';
+    var myWishSection = '<div style="padding:0 16px 6px; font-size:13px; font-weight:900;">내 위시 (' + myWishes.length + ')</div>' +
+      (myWishes.length ? myWishes.map(wishCardHtml).join('') : '<div class="empty-state">아직 만든 위시가 없어요<br/>홈에서 + 버튼을 눌러보세요</div>');
+    var historyRows = state.myGifts.length
+      ? state.myGifts.slice(0, 20).map(function (g) {
+          return '<div class="cheer-item" style="padding:9px 16px;"><span class="who">' + esc(g.toName) + '님께</span><span class="msg">' + esc(g.wishTitle) + '</span><span class="amt">' + formatWon(g.amount) + '</span></div>';
+        }).join('')
+      : '';
+    var historySection = state.myGifts.length ? '<div style="padding:14px 0 4px 16px; font-size:13px; font-weight:900;">보낸 선물 히스토리</div>' + historyRows : '';
+    return head + statCards + myWishSection + historySection;
+  }
+
+  function renderBottomNav() {
+    var tabs = [
+      { id: 'home', ic: '🏠', label: '홈' },
+      { id: 'explore', ic: '🧭', label: '탐색' },
+      { id: 'notif', ic: '🔔', label: '알림' },
+      { id: 'my', ic: '👤', label: '마이' },
+    ];
+    return '<div id="bottom-nav">' + tabs.map(function (t) {
+      return '<button class="nav-btn' + (state.ui.tab === t.id ? ' active' : '') + '" onclick="setTab(\'' + t.id + '\')"><span class="ic">' + t.ic + '</span>' + t.label + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function renderWishDetailSheet() {
+    var wish = state.wishes.filter(function (w) { return w.id === state.ui.wishDetailId; })[0];
+    if (!wish) return '';
+    var draft = state.ui.giftDraft;
+    var pct = Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100));
+    var isMine = isWishMine(wish);
+    var amounts = [1000, 3000, 5000, 10000, 50000];
+    var amountChips = amounts.map(function (a) {
+      return '<div class="amount-chip' + (draft.amount === a && !draft.customAmount ? ' active' : '') + '" onclick="pickGiftAmount(' + a + ')">' + (a >= 10000 ? (a / 10000) + '만' : a.toLocaleString()) + '</div>';
+    }).join('');
+    var timeline = wish.contributions.length
+      ? wish.contributions.map(function (c) {
+          return '<div class="cheer-item"><span class="who">' + esc(c.fromName) + '</span><span class="msg">' + esc(c.message || '') + '</span><span class="amt">' + formatWon(c.amount) + '</span></div>';
+        }).join('')
+      : '<div style="font-size:12px; color:var(--text-sub); padding:8px 0;">아직 응원이 없어요, 첫 번째로 보태보세요!</div>';
+
+    var giftForm = isMine ? '' : '' +
+      '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">얼마나 보탤까요?</div>' +
+      '<div class="amount-grid">' + amountChips + '</div>' +
+      '<input type="text" inputmode="numeric" placeholder="직접 입력 (원)" value="' + esc(draft.customAmount) + '" oninput="setCustomGiftAmount(this)" />' +
+      '<textarea rows="2" placeholder="응원 한마디를 남겨보세요" oninput="setGiftMessage(this)">' + esc(draft.message) + '</textarea>' +
+      '<div class="option-item' + (draft.anonymous ? ' active' : '') + '" onclick="toggleGiftAnonymous()"><span>🙈 익명으로 보내기</span><button class="toggle' + (draft.anonymous ? ' on' : '') + '"></button></div>' +
+      '<button class="btn-primary" onclick="sendGift()">💛 카카오페이로 보태기</button>';
+
+    return '' +
+      '<div class="sheet-backdrop" onclick="closeWishDetail()">' +
+        '<div class="bottom-sheet" onclick="event.stopPropagation()">' +
+          '<div class="sheet-head"><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><button class="icon-btn" onclick="closeWishDetail()">✕</button></div>' +
+          '<div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-sub);">' + wishAvatarHtml(wish, 26) + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + ' · ' + ddayBadge(wish.deadline) + '</div>' +
+          (wish.story ? '<div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">' + esc(wish.story) + '</div>' : '') +
+          '<div>' +
+            '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
+            '<div class="stat-row"><span class="pct">' + pct + '% 달성</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
+          '</div>' +
+          giftForm +
+          '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💌 응원 방명록</div>' +
+          '<div>' + timeline + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderCreateWizard() {
+    var w = state.ui.createWizard;
+    var body = '';
+    if (w.step === 1) {
+      body = '' +
+        '<div style="display:flex; flex-direction:column; gap:8px;">' +
+          '<button type="button" class="template-card' + (w.wishType === 'personal' ? ' active' : '') + '" onclick="setWizardType(\'personal\')"><span class="emo">🙋</span><span><div class="t">개인 위시</div><div class="s">나 혼자만의 위시예요</div></span></button>' +
+          '<button type="button" class="template-card' + (w.wishType === 'group' ? ' active' : '') + '" onclick="setWizardType(\'group\')"><span class="emo">👥</span><span><div class="t">단체 위시</div><div class="s">친구들과 함께 만드는 위시예요</div></span></button>' +
+        '</div>' +
+        (w.wishType === 'group' ? '' +
+          '<input type="text" placeholder="그룹 이름 (예: 우리 가족, 축구팀)" value="' + esc(w.groupName) + '" oninput="wizardSetField(\'groupName\', this)" />' +
+          '<div style="font-size:11.5px; font-weight:800; color:var(--text-sub);">함께할 친구 선택</div>' +
+          '<div style="display:flex; flex-direction:column; gap:6px;">' +
+            state.friends.map(function (f) {
+              var checked = w.memberIds.indexOf(f.id) >= 0;
+              return '<div class="option-item' + (checked ? ' active' : '') + '" onclick="toggleWizardMember(\'' + f.id + '\')"><span>' + f.avatar + ' ' + esc(f.name) + '</span>' + (checked ? '✓' : '') + '</div>';
+            }).join('') +
+          '</div>'
+        : '');
+    } else if (w.step === 2) {
+      body = '<div class="occasion-grid">' + OCCASIONS.map(function (o) {
+        return '<div class="occasion-tile' + (w.occasion === o.type ? ' active' : '') + '" onclick="pickOccasion(\'' + o.type + '\')"><div class="emo">' + o.emoji + '</div><div class="lbl">' + esc(o.label) + '</div></div>';
+      }).join('') + '</div>';
+    } else if (w.step === 3) {
+      var tpls = TEMPLATES[w.occasion] || [];
+      body = '<div style="display:flex; flex-direction:column; gap:8px;">' +
+        tpls.map(function (t, i) {
+          return '<button type="button" class="template-card' + (w.templateIdx === i ? ' active' : '') + '" onclick="pickTemplate(' + i + ')"><span class="emo">' + w.emoji + '</span><span><div class="t">' + esc(t.title) + '</div><div class="s">' + esc(t.subtitle) + '</div></span></button>';
+        }).join('') +
+        '<button type="button" class="btn-ghost" onclick="skipTemplateCustom()">✏️ 직접 작성할게요</button>' +
+      '</div>';
+    } else if (w.step === 4) {
+      body = '' +
+        '<input type="text" placeholder="위시 제목 *" value="' + esc(w.title) + '" oninput="wizardSetField(\'title\', this)" />' +
+        '<input type="text" placeholder="한 줄 소개" value="' + esc(w.subtitle) + '" oninput="wizardSetField(\'subtitle\', this)" />' +
+        '<div style="display:flex; gap:8px;">' +
+          '<input type="number" placeholder="목표 금액(원)" value="' + esc(w.goal) + '" oninput="wizardSetField(\'goal\', this)" style="flex:1;" />' +
+          '<input type="number" placeholder="며칠 후 마감" value="' + esc(w.days) + '" oninput="wizardSetField(\'days\', this)" style="width:110px;" />' +
+        '</div>' +
+        '<textarea id="wizard-story-input" rows="4" placeholder="위시에 대한 이야기를 들려주세요 (여행, 마라톤, 카메라, 커피 등 키워드를 넣으면 추천 아이템이 떠요)" oninput="wizardSetStory(this)">' + esc(w.story) + '</textarea>' +
+        (w.suggestedItems.length ? '<div style="display:flex; flex-wrap:wrap; gap:6px;">' + w.suggestedItems.map(function (it) { return '<button type="button" class="suggest-chip" onclick="applySuggestion(\'' + esc(it) + '\')">+ ' + esc(it) + '</button>'; }).join('') + '</div>' : '');
+    } else if (w.step === 5) {
+      var isGroup = w.wishType === 'group';
+      var previewOwnerRow = isGroup
+        ? '<div class="row-top"><span style="font-size:16px;">👥</span><div class="owner">' + esc(w.groupName || '단체') + ' 위시</div><span class="dday">D-' + w.days + '</span></div>'
+        : '<div class="row-top"><div class="avatar">' + state.user.avatar + '</div><div class="owner">' + esc(state.user.name) + '님의 위시</div><span class="dday">D-' + w.days + '</span></div>';
+      body = '' +
+        '<div class="wish-card style-' + state.customization.cardStyle + '" style="margin:0;">' +
+          previewOwnerRow +
+          '<div class="title">' + w.emoji + ' ' + esc(w.title || '제목 없음') + '</div>' +
+          '<div class="subtitle">' + esc(w.subtitle) + '</div>' +
+          '<div class="gauge-track"><div class="gauge-fill" style="width:0%;"></div></div>' +
+          '<div class="stat-row"><span class="pct">0% 달성</span><span class="amt">0원 / ' + formatWon(w.goal) + '</span></div>' +
+        '</div>' +
+        '<div style="font-size:12px; color:var(--text-sub); text-align:center;">이렇게 등록돼요. 확인하고 완료를 눌러주세요!</div>';
+    }
+    var footer = '<div style="display:flex; gap:8px;">' +
+      (w.step > 1 ? '<button class="btn-ghost" style="flex:1;" onclick="wizardPrevStep()">이전</button>' : '') +
+      (w.step !== 2 && w.step < 5 ? '<button class="btn-primary" style="flex:2;" onclick="wizardNextStep()">다음</button>' : '') +
+      (w.step === 5 ? '<button class="btn-primary" style="flex:2;" onclick="finishWizard()">🎉 위시 등록 완료</button>' : '') +
+    '</div>';
+    return '' +
+      '<div class="sheet-backdrop" onclick="closeCreateWizard()">' +
+        '<div class="bottom-sheet" onclick="event.stopPropagation()">' +
+          '<div class="sheet-head"><h2>위시 만들기 (' + w.step + '/5)</h2><button class="icon-btn" onclick="closeCreateWizard()">✕</button></div>' +
+          body +
+          footer +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderCustomizeSheet() {
+    var c = state.customization;
+    var colorRow = THEME_COLORS.map(function (t) {
+      return '<div class="swatch' + (c.themeColor === t.id ? ' active' : '') + '" style="background:' + t.primary + ';" title="' + esc(t.label) + '" onclick="setThemeColor(\'' + t.id + '\')"></div>';
+    }).join('');
+    var layoutRows = PROFILE_LAYOUTS.map(function (l) {
+      return '<div class="option-item' + (c.profileLayout === l.id ? ' active' : '') + '" onclick="setProfileLayout(\'' + l.id + '\')"><span>' + esc(l.label) + '</span>' + (c.profileLayout === l.id ? '✓' : '') + '</div>';
+    }).join('');
+    var cardRows = CARD_STYLES.map(function (s) {
+      return '<div class="option-item' + (c.cardStyle === s.id ? ' active' : '') + '" onclick="setCardStyle(\'' + s.id + '\')"><span>' + esc(s.label) + '</span>' + (c.cardStyle === s.id ? '✓' : '') + '</div>';
+    }).join('');
+    var widgetDefs = [ { key: 'dday', label: 'D-Day 카운트다운' }, { key: 'gaugeRing', label: '달성률 게이지 링' }, { key: 'cheerToast', label: '최근 응원 롤링 토스트' } ];
+    var widgetRows = widgetDefs.map(function (wd) {
+      return '<div class="option-item" onclick="toggleWidget(\'' + wd.key + '\')"><span>' + esc(wd.label) + '</span><button class="toggle' + (c.widgets[wd.key] ? ' on' : '') + '"></button></div>';
+    }).join('');
+    return '' +
+      '<div class="sheet-backdrop" onclick="closeCustomize()">' +
+        '<div class="bottom-sheet" onclick="event.stopPropagation()">' +
+          '<div class="sheet-head"><h2>🎨 화면 꾸미기</h2><button class="icon-btn" onclick="closeCustomize()">✕</button></div>' +
+          '<div><div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-bottom:8px;">테마 컬러</div><div class="swatch-row">' + colorRow + '</div></div>' +
+          '<div><div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-bottom:8px;">프로필 레이아웃</div><div class="option-row">' + layoutRows + '</div></div>' +
+          '<div><div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-bottom:8px;">위시 카드 스타일</div><div class="option-row">' + cardRows + '</div></div>' +
+          '<div><div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-bottom:8px;">위젯</div><div class="option-row">' + widgetRows + '</div></div>' +
+          '<button class="btn-primary" onclick="closeCustomize()">완료</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  // 위시 스토리 입력창 IME 조합 이벤트 - oncompositionstart/end는 인라인 어트리뷰트로 등록해도
+  // 브라우저가 GlobalEventHandlers로 인식하지 않아 죽은 코드가 되므로 document에 위임한다.
+  // render()가 #root를 통째로 교체해 매번 새 <textarea> 노드가 생겨도 document 리스너는 유효하다.
+  document.addEventListener('compositionstart', function (e) {
+    if (e.target && e.target.id === 'wizard-story-input') e.target.dataset.composing = 'true';
+  });
+  document.addEventListener('compositionend', function (e) {
+    if (e.target && e.target.id === 'wizard-story-input') {
+      e.target.dataset.composing = 'false';
+      window.wizardSetStory(e.target);
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
