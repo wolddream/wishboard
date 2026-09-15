@@ -498,7 +498,7 @@
     var activeId = active && active.id;
     var selStart = active && ('selectionStart' in active) ? active.selectionStart : null;
     var selEnd = active && ('selectionEnd' in active) ? active.selectionEnd : null;
-    var scrollables = Array.prototype.slice.call(document.querySelectorAll('.bottom-sheet, .scroll-x, .chat-scroll'));
+    var scrollables = Array.prototype.slice.call(document.querySelectorAll('.bottom-sheet, .scroll-x, .chat-scroll, .detail-page'));
     var savedScroll = scrollables.map(function (el) { return { top: el.scrollTop, left: el.scrollLeft }; });
 
     document.getElementById('root').innerHTML = renderApp();
@@ -512,7 +512,7 @@
         }
       }
     }
-    var newScrollables = Array.prototype.slice.call(document.querySelectorAll('.bottom-sheet, .scroll-x, .chat-scroll'));
+    var newScrollables = Array.prototype.slice.call(document.querySelectorAll('.bottom-sheet, .scroll-x, .chat-scroll, .detail-page'));
     newScrollables.forEach(function (el, i) {
       if (savedScroll[i]) { el.scrollTop = savedScroll[i].top; el.scrollLeft = savedScroll[i].left; }
     });
