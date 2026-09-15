@@ -1484,13 +1484,10 @@
     // isMine일 땐 내 위시라 남에게 선물 못 하니 빈 문자열이었는데, 그러면 정작 만든 위시를
     // 지울 방법이 하나도 없었다(데모 중에 테스트로 만든 위시가 계속 쌓이기만 함) - 삭제 버튼을 둔다.
     // 단체 위시면 친구 목록이 없는 대신 초대 링크로 서로를 불러야 하니 그 버튼도 같이 둔다.
-    var ownerActions = isMine ? '' +
-      (wish.type === 'group' ? '' +
-        '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 초대하기</button>' +
-        '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 초대 링크 복사</button>'
-        : '') +
-      '<button class="btn-ghost" style="margin-top:4px;" onclick="startEditWish(\'' + wish.id + '\')">✏️ 위시 내용 수정</button>' +
-      '<button class="btn-ghost" style="color:var(--danger); margin-top:4px;" onclick="deleteWish(\'' + wish.id + '\')">🗑️ 이 위시 삭제하기</button>'
+    // 위시 전체 수정/삭제 버튼은 아이템별 수정/삭제(✏️/🗑️)가 생기면서 뺐다 - 사용자 요청.
+    var ownerActions = (isMine && wish.type === 'group') ? '' +
+      '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 초대하기</button>' +
+      '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 초대 링크 복사</button>'
       : '';
 
     var editForm = editing ? '' +
