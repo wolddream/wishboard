@@ -1,16 +1,16 @@
 {
-  "name": "wishboard-api",
-  "version": "0.0.0",
-  "private": true,
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "cf-typegen": "wrangler types"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260907.0",
-    "typescript": "^5.5.2",
-    "wrangler": "^4.129.1"
-  }
+    "name": "wishboard-api",
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+          "deploy": "wrangler deploy",
+          "dev": "wrangler dev",
+          "start": "wrangler dev",
+          "cf-typegen": "wrangler types"
+    },
+    "devDependencies": {
+          "@cloudflare/workers-types": "^5.20260915.1",
+          "typescript": "^5.5.2",
+          "wrangler": "^4.129.1"
+    }
 }
