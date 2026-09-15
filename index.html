@@ -1557,7 +1557,15 @@
       var listBody = threads === null
         ? '<div class="empty-state">⏳<br/>불러오는 중...</div>'
         : (threads.length ? threads.map(function (t) {
-            return '<div class="cheer-item" onclick="openChatThread(\'' + wishId + '\', \'' + t.peerId + '\')" style="cursor:pointer;"><span class="who">' + t.peerAvatar + ' ' + esc(t.peerName) + '</span><span class="msg">' + esc(t.lastText) + '</span></div>';
+            return '' +
+              '<button type="button" onclick="openChatThread(\'' + wishId + '\', \'' + t.peerId + '\')" style="width:100%; display:flex; align-items:center; gap:10px; padding:12px; border:1px solid var(--border); border-radius:14px; margin-bottom:8px; background:var(--card); text-align:left;">' +
+                '<span style="font-size:20px;">' + t.peerAvatar + '</span>' +
+                '<span style="flex:1; min-width:0;">' +
+                  '<div style="font-size:13px; font-weight:800;">' + esc(t.peerName) + '</div>' +
+                  '<div style="font-size:12px; color:var(--text-sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(t.lastText) + '</div>' +
+                '</span>' +
+                '<span style="color:var(--text-sub); font-size:16px;">›</span>' +
+              '</button>';
           }).join('') : '<div class="empty-state">💬<br/>아직 대화가 없어요</div>');
       return '' +
         '<div class="detail-page" style="z-index:120;">' +
