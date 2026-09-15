@@ -269,6 +269,45 @@ export async function handleAddWishItem(request: Request, env: Env, wishId: stri
 	return json({ ok: true, id: itemId }, 201);
 }
 
+// 아이템 하나를 수정한다(이름/링크/이미지/가격) - owner만. 이미 모인 금액보다 가격을 낮출 수는
+// 없다(handlePatchWish의 목표금액 보호와 같은 이유).
+export async function handlePatchWishItem(request: Request, env: Env, wishId: string, itemId: string): Promise<Response> {
+	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; goal_amount?: number };
+	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== body.user_id) return json({ error: "수정 권한이 없어요" }, 403);
+	const item = await env.DB.prepare(`SELECT current_amount FROM wish_items WHERE id = ? AND wish_id = ?`).bind(itemId, wishId).first<{ current_amount: number }>();
+	if (!item) return json({ error: "item not found" }, 404);
+	if (!body.name || !body.name.trim()) return json({ error: "아이템 이름이 필요해요" }, 400);
+
+	const goalAmount = Math.max(item.current_amount, Math.round(Number(body.goal_amount) || item.current_amount || 1000));
+	await env.DB.prepare(`UPDATE wish_items SET name = ?, link = ?, image_url = ?, goal_amount = ? WHERE id = ?`)
+		.bind(body.name.trim().slice(0, 80), (body.link || "").trim().slice(0, 500), (body.image_url || "").trim().slice(0, 500), goalAmount, itemId)
+		.run();
+
+	return json({ ok: true });
+}
+
+// 아이템 하나를 삭제한다 - owner만, 그리고 두 가지 안전장치를 둔다: (1) 마지막 남은 하나는 못
+// 지운다(위시 전체를 지우게 유도), (2) 이미 선물을 받은 아이템은 돈이 허공에 뜨지 않도록 못
+// 지운다.
+export async function handleDeleteWishItem(request: Request, env: Env, wishId: string, itemId: string): Promise<Response> {
+	const userId = new URL(request.url).searchParams.get("user_id") || "";
+	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== userId) return json({ error: "삭제 권한이 없어요" }, 403);
+
+	const item = await env.DB.prepare(`SELECT current_amount FROM wish_items WHERE id = ? AND wish_id = ?`).bind(itemId, wishId).first<{ current_amount: number }>();
+	if (!item) return json({ error: "item not found" }, 404);
+	if (item.current_amount > 0) return json({ error: "이미 선물을 받은 아이템은 삭제할 수 없어요" }, 400);
+
+	const { results: countRows } = await env.DB.prepare(`SELECT COUNT(*) as c FROM wish_items WHERE wish_id = ?`).bind(wishId).all<{ c: number }>();
+	if ((countRows[0]?.c ?? 0) <= 1) return json({ error: "마지막 남은 아이템은 삭제할 수 없어요. 위시 전체를 삭제해주세요." }, 400);
+
+	await env.DB.prepare(`DELETE FROM wish_items WHERE id = ?`).bind(itemId).run();
+	return json({ ok: true });
+}
+
 // 단체 위시는 만들 때 멤버를 미리 고르지 않는다(진짜 친구 목록이 없어서) - 대신 만든 사람이
 // "초대 링크"(?join=wishId)를 공유하면, 그 링크로 들어온 사람이 이 엔드포인트로 스스로 합류한다.
 // keongyu의 "함께가기 참여 링크"와 같은 패턴.

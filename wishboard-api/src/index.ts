@@ -7,6 +7,8 @@
  *   DELETE /api/wishes/:id?user_id=    -> delete a wish (owner or group member only)
  *   PATCH  /api/wishes/:id             -> edit a wish's content (owner only)
  *   POST   /api/wishes/:id/items       -> add a new item to an existing wish (owner only)
+ *   PATCH  /api/wishes/:id/items/:itemId -> edit one item (owner only, goal can't drop below what's raised)
+ *   DELETE /api/wishes/:id/items/:itemId?user_id= -> delete one item (owner only; blocked if it has gifts, or is the last item)
  *   POST   /api/wishes/:id/gift        -> send a contribution (server caps at item's goal, fans out notifications)
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
  *   GET    /api/wishes/:id/chat?peer_id=       -> a 1:1 chat thread's messages
@@ -28,7 +30,7 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePostGift, handleJoinWish } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleJoinWish } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
@@ -58,8 +60,15 @@ export default {
 				return cors(await handlePatchWish(request, env, segments[2]));
 			}
 			// /api/wishes/:id/items
-			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "items" && request.method === "POST") {
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "items" && segments.length === 4 && request.method === "POST") {
 				return cors(await handleAddWishItem(request, env, segments[2]));
+			}
+			// /api/wishes/:id/items/:itemId
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "items" && segments.length === 5 && request.method === "PATCH") {
+				return cors(await handlePatchWishItem(request, env, segments[2], segments[4]));
+			}
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "items" && segments.length === 5 && request.method === "DELETE") {
+				return cors(await handleDeleteWishItem(request, env, segments[2], segments[4]));
 			}
 			// /api/wishes/:id/gift
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && request.method === "POST") {

@@ -409,7 +409,7 @@
       ui: {
         tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null,
         customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false,
-        homeSearch: '', addItemDraft: null, savingAddItem: false,
+        homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
         chatWishId: null, chatPeerId: null, chatThreads: null, chatMessages: null, chatDraft: '', sendingChat: false,
       },
     };
@@ -550,6 +550,8 @@
     state.ui.wishDetailId = null;
     state.ui.giftDraft = null;
     state.ui.editWishDraft = null;
+    state.ui.editItemDraft = null;
+    state.ui.addItemDraft = null;
     if (/^#wish=/.test(location.hash)) history.back();
     else render();
   };
@@ -664,6 +666,55 @@
         render();
         showToast('추가에 실패했어요. 다시 시도해주세요.');
       });
+  };
+
+  // ---- 아이템 하나 수정/삭제 (만든 사람만) ----
+  window.startEditItem = function (wishId, itemId) {
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    var item = wish && (wish.items || []).filter(function (i) { return i.id === itemId; })[0];
+    if (!item) return;
+    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrl: item.imageUrl, goal: item.goalAmount };
+    render();
+  };
+  window.cancelEditItem = function () { state.ui.editItemDraft = null; render(); };
+  window.setEditItemField = function (field, el) { if (state.ui.editItemDraft) state.ui.editItemDraft[field] = el.value; };
+  window.saveEditItem = function () {
+    var d = state.ui.editItemDraft;
+    if (!d) return;
+    var name = (d.name || '').trim();
+    if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
+    if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
+    if (containsBannedWord(name)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    state.ui.savingEditItem = true;
+    render();
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items/' + encodeURIComponent(d.itemId), {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+    })
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (result) {
+        state.ui.savingEditItem = false;
+        if (!result.ok) { showToast(result.data.error || '수정에 실패했어요.'); render(); return; }
+        state.ui.editItemDraft = null;
+        showToast('아이템을 수정했어요!');
+        syncWishesFromServer();
+      })
+      .catch(function () {
+        state.ui.savingEditItem = false;
+        render();
+        showToast('수정에 실패했어요. 다시 시도해주세요.');
+      });
+  };
+  window.deleteWishItem = function (wishId, itemId) {
+    if (!confirm('이 아이템을 삭제할까요?')) return;
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/items/' + encodeURIComponent(itemId) + '?user_id=' + encodeURIComponent(state.user.id), { method: 'DELETE' })
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (result) {
+        if (!result.ok) { showToast(result.data.error || '삭제에 실패했어요.'); return; }
+        showToast('아이템을 삭제했어요.');
+        syncWishesFromServer();
+      })
+      .catch(function () { showToast('삭제에 실패했어요.'); });
   };
 
   // ---- 위시 주인과 1:1 대화 ----
@@ -1369,6 +1420,7 @@
     // 선물은 위시 전체가 아니라 그 안의 아이템 하나(예: "런닝화")를 향한다 - 아이템별로
     // 이미지·상품 링크·진행률을 보여주고, "선물하기"를 누른 아이템 밑에만 금액 입력 폼이
     // 펼쳐진다(draft.itemId로 어느 아이템이 펼쳐져 있는지 추적).
+    var itemEd = state.ui.editItemDraft;
     var itemsHtml = (wish.items || []).map(function (item) {
       var itemPct = item.goalAmount > 0 ? Math.min(100, Math.round((item.currentAmount / item.goalAmount) * 100)) : 0;
       var thumb = item.imageUrl
@@ -1376,6 +1428,22 @@
         : '<div style="width:48px; height:48px; border-radius:10px; background:#F0EEE7; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;">🎁</div>';
       var linkHtml = item.link ? '<a href="' + esc(item.link) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px; color:var(--text-sub); text-decoration:underline;">상품 보러가기 ↗</a>' : '';
       var isOpen = draft && draft.itemId === item.id;
+      var isEditingItem = itemEd && itemEd.itemId === item.id;
+
+      if (isEditingItem) {
+        return '' +
+          '<div style="border:1px dashed var(--border); border-radius:14px; padding:12px; margin-bottom:8px; display:flex; flex-direction:column; gap:6px;" onclick="event.stopPropagation()">' +
+            '<input type="text" placeholder="아이템 이름 *" value="' + esc(itemEd.name) + '" oninput="setEditItemField(\'name\', this)" />' +
+            '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(itemEd.link) + '" oninput="setEditItemField(\'link\', this)" />' +
+            '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(itemEd.imageUrl) + '" oninput="setEditItemField(\'imageUrl\', this)" />' +
+            '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
+            '<div style="display:flex; gap:8px;">' +
+              '<button class="btn-ghost" style="flex:1;" onclick="cancelEditItem()">취소</button>' +
+              '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingEditItem ? 'disabled' : '') + ' onclick="saveEditItem()">' + (state.ui.savingEditItem ? '저장 중...' : '저장하기') + '</button>' +
+            '</div>' +
+          '</div>';
+      }
+
       var giftHere = isOpen ? '' +
         '<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border);">' +
           '<div class="amount-grid">' + amounts.map(function (a) {
@@ -1389,6 +1457,13 @@
             '<button class="btn-primary" style="flex:2;" ' + (state.ui.sendingGift ? 'disabled' : '') + ' onclick="sendGift()">' + (state.ui.sendingGift ? '⏳ 보내는 중...' : '💛 카카오페이로 보태기') + '</button>' +
           '</div>' +
         '</div>' : '';
+
+      var itemOwnerActions = isMine ? '' +
+        '<div style="display:flex; gap:4px; flex-shrink:0;">' +
+          '<button class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="startEditItem(\'' + wish.id + '\', \'' + item.id + '\')">✏️</button>' +
+          '<button class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="deleteWishItem(\'' + wish.id + '\', \'' + item.id + '\')">🗑️</button>' +
+        '</div>' : '';
+
       return '' +
         '<div style="border:1px solid var(--border); border-radius:14px; padding:12px; margin-bottom:8px;" onclick="event.stopPropagation()">' +
           '<div style="display:flex; gap:10px;">' +
@@ -1399,6 +1474,7 @@
               '<div class="gauge-track" style="margin-top:6px;"><div class="gauge-fill" style="width:' + itemPct + '%;"></div></div>' +
               '<div class="stat-row" style="margin-top:2px;"><span class="pct">' + itemPct + '%</span><span class="amt">' + formatWon(item.currentAmount) + ' / ' + formatWon(item.goalAmount) + '</span></div>' +
             '</div>' +
+            itemOwnerActions +
           '</div>' +
           (!isOpen ? '<button class="btn-primary" style="width:100%; margin-top:8px;" onclick="openItemGift(\'' + item.id + '\')">💛 이 아이템에 선물하기</button>' : '') +
           giftHere +
