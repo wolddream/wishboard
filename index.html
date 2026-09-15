@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>위시보드 WishBoard</title>
 <link rel="manifest" href="data:application/manifest+json,{&quot;name&quot;:&quot;위시보드&quot;,&quot;short_name&quot;:&quot;위시보드&quot;,&quot;start_url&quot;:&quot;./&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%23F7F5F0&quot;,&quot;theme_color&quot;:&quot;%23FEE500&quot;}" />
+<!-- Pretendard: 토스/카카오페이 등 국내 핀테크 앱이 즐겨 쓰는 서체 - 시스템 폰트보다 숫자·한글
+     가독성이 좋아 금액이 많이 노출되는 이 앱과 잘 맞는다. -->
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
 <style>
   :root {
     --primary: #FEE500;
@@ -20,10 +23,13 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--bg); }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", Roboto, sans-serif;
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", Roboto, sans-serif;
     color: var(--text);
     -webkit-tap-highlight-color: transparent;
   }
+  /* 금액처럼 자릿수가 바뀌는 숫자가 나열될 때 폭이 흔들리지 않게 - 토스/카카오페이류 앱이
+     금액 표시에 공통으로 쓰는 디테일. */
+  .amt, .stat-row, .amount-chip, .gauge-ring-inner { font-variant-numeric: tabular-nums; }
   #app-frame {
     max-width: 460px; margin: 0 auto; min-height: 100vh; background: var(--bg);
     position: relative; padding-bottom: 76px; overflow-x: hidden;
@@ -62,9 +68,16 @@
   /* Wish card */
   .wish-card {
     background: var(--card); border-radius: 18px; padding: 16px; margin: 0 16px 12px; border: 1px solid var(--border);
+    transition: transform 0.12s ease;
   }
+  /* 눌렀을 때 살짝 눌리는 느낌 - 카카오페이/토스류 앱들이 탭 가능한 요소 전반에 공통으로 주는
+     피드백. 실제 기기(터치)에서만 의미가 있어 hover가 아니라 active에만 건다. */
+  .wish-card:active, .reco-card:active, .template-card:active, .occasion-tile:active, .option-item:active,
+  .amount-chip:active, .chip:active, .swatch:active { transform: scale(0.97); }
+  .btn-primary, .btn-ghost, #fab, .icon-btn { transition: transform 0.12s ease; }
+  .btn-primary:active, .btn-ghost:active, #fab:active, .icon-btn:active { transform: scale(0.94); }
   .wish-card.style-flat { box-shadow: none; border: 1px solid var(--text); border-radius: 10px; }
-  .wish-card.style-soft { box-shadow: 0 6px 18px rgba(0,0,0,0.06); border-color: transparent; }
+  .wish-card.style-soft { box-shadow: 0 1px 2px rgba(20,18,14,0.04), 0 10px 24px rgba(20,18,14,0.07); border-color: transparent; }
   .wish-card.style-bold { border: 2px solid var(--text); border-radius: 22px; box-shadow: 4px 4px 0 var(--primary); }
   /* 카드 전용이 아니라 여러 화면(위시 상세 헤더, 탐색 추천 카드, 마이페이지 프로필)에서 재사용되는
      조각들이라 .wish-card로 스코핑하지 않는다 - 스코핑했다가 위시 상세 화면에서 D-day 뱃지/아바타가
@@ -116,8 +129,15 @@
   }
   .bottom-sheet {
     width: 100%; max-width: 460px; max-height: 90dvh; overflow-y: auto; background: var(--bg);
-    border-radius: 22px 22px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+    border-radius: 22px 22px 0 0; padding: 10px 18px calc(18px + env(safe-area-inset-bottom));
     display: flex; flex-direction: column; gap: 14px; animation: sheet-up 0.28s cubic-bezier(0.2,0.8,0.3,1);
+  }
+  /* 카카오페이/토스 바텀시트의 대표적인 시각 신호인 드래그 핸들 바 - 실제 드래그로 닫는 기능은
+     없지만("✕" 버튼으로 닫음), 시트라는 것을 한눈에 알아보게 하는 장식. 스크롤해도 맨 위에
+     붙어있게 sticky 처리. */
+  .bottom-sheet::before {
+    content: ''; display: block; width: 40px; height: 4px; border-radius: 999px; background: var(--border);
+    margin: 2px auto 4px; flex-shrink: 0; position: sticky; top: 0;
   }
   @keyframes sheet-up { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   .sheet-head { display: flex; justify-content: space-between; align-items: center; }
@@ -261,8 +281,9 @@
   var BANNED_WORDS = [
     '씨발', '시발', 'ㅅㅂ', '개새끼', '개새', '병신', 'ㅄ', '지랄', '좆', '좇', '존나', '존니',
     '미친놈', '미친년', '걸레', '창녀', '창놈', '씹', '보지', '자지', '섹스', '性', '19금', '19禁',
-    '성인용', '야동', '음란', '폰섹', '性교', '性행위', '强간', '강간', 'fuck', 'shit', 'bitch',
-    'porn', 'sex', 'nsfw'
+    '성인용', '야동', '음란', '음란물', '폰섹', '性교', '性행위', '强간', '강간', '성매매', '매춘',
+    '매춘부', '누드', '알몸', '노출', '몰카', '몰래카메라', '자위', '떡방', '벗방', '유흥업소',
+    'fuck', 'shit', 'bitch', 'porn', 'sex', 'nsfw', 'xxx', 'onlyfans'
   ];
   function containsBannedWord(text) {
     var normalized = (text || '').toLowerCase().replace(/\s+/g, '');
@@ -870,8 +891,8 @@
       : '<div style="display:flex; align-items:center; gap:12px; padding:20px 16px 8px;"><div class="avatar" style="width:52px; height:52px; font-size:26px;">' + state.user.avatar + '</div><div style="font-size:16px; font-weight:900;">' + esc(state.user.name) + '</div></div>';
     var statCards = '' +
       '<div style="display:flex; gap:10px; padding:0 16px 16px;">' +
-        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 선물</div><div style="font-size:18px; font-weight:900; margin-top:4px;">' + state.myGifts.length + '건</div></div>' +
-        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 금액</div><div style="font-size:18px; font-weight:900; margin-top:4px;">' + formatWon(totalAmount) + '</div></div>' +
+        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 선물</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + state.myGifts.length + '건</div></div>' +
+        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 금액</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + formatWon(totalAmount) + '</div></div>' +
       '</div>';
     var myWishSection = '<div style="padding:0 16px 6px; font-size:13px; font-weight:900;">내 위시 (' + myWishes.length + ')</div>' +
       (myWishes.length ? myWishes.map(wishCardHtml).join('') : '<div class="empty-state">아직 만든 위시가 없어요<br/>홈에서 + 버튼을 눌러보세요</div>');
