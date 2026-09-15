@@ -66,22 +66,27 @@
   .wish-card.style-flat { box-shadow: none; border: 1px solid var(--text); border-radius: 10px; }
   .wish-card.style-soft { box-shadow: 0 6px 18px rgba(0,0,0,0.06); border-color: transparent; }
   .wish-card.style-bold { border: 2px solid var(--text); border-radius: 22px; box-shadow: 4px 4px 0 var(--primary); }
-  .wish-card .row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-  .wish-card .avatar {
+  /* 카드 전용이 아니라 여러 화면(위시 상세 헤더, 탐색 추천 카드, 마이페이지 프로필)에서 재사용되는
+     조각들이라 .wish-card로 스코핑하지 않는다 - 스코핑했다가 위시 상세 화면에서 D-day 뱃지/아바타가
+     스타일 없이 맨살로 나오던 버그(.stat-row와 같은 종류)가 있었다. */
+  .row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .avatar {
     width: 30px; height: 30px; border-radius: 50%; background: #F0EEE7; display: flex; align-items: center;
     justify-content: center; font-size: 15px; flex-shrink: 0;
   }
-  .wish-card .owner { font-size: 12px; font-weight: 800; color: var(--text-sub); }
-  .wish-card .dday {
+  .owner { font-size: 12px; font-weight: 800; color: var(--text-sub); }
+  .dday {
     margin-left: auto; font-size: 11px; font-weight: 900; padding: 3px 9px; border-radius: 999px;
-    background: #FFF0E8; color: #E0692B;
+    background: #FFF0E8; color: #E0692B; flex-shrink: 0;
   }
-  .wish-card .dday.urgent { background: #FFE5E5; color: var(--danger); }
-  .wish-card .title { font-size: 15.5px; font-weight: 900; margin-bottom: 3px; }
-  .wish-card .subtitle { font-size: 12px; color: var(--text-sub); margin-bottom: 10px; }
+  .dday.urgent { background: #FFE5E5; color: var(--danger); }
+  .title { font-size: 15.5px; font-weight: 900; margin-bottom: 3px; }
+  .subtitle { font-size: 12px; color: var(--text-sub); margin-bottom: 10px; }
   .gauge-track { height: 9px; border-radius: 6px; background: #F0EEE7; overflow: hidden; }
   .gauge-fill { height: 100%; border-radius: 6px; background: var(--primary); transition: width 0.5s ease; }
-  .gauge-ring { width: 40px; height: 40px; flex-shrink: 0; }
+  .gauge-ring { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .gauge-ring-inner { width: 19px; height: 19px; border-radius: 50%; background: var(--card); display: flex; align-items: center; justify-content: center; font-size: 6.5px; font-weight: 900; }
+  .cheer-ticker { margin: 0 16px 10px; padding: 9px 12px; border-radius: 12px; background: #FFFBEF; border: 1px dashed var(--primary); font-size: 11.5px; font-weight: 700; color: #8A6D00; }
   .stat-row { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; font-size: 11.5px; }
   .stat-row .pct { font-weight: 900; }
   .stat-row .amt { color: var(--text-sub); }
@@ -250,6 +255,20 @@
     { keys: ['생일', '축하'], items: ['미니 케이크', '축하 카드', '풍선 세트'] },
   ];
 
+  // 위시 제목/소개/스토리/그룹명/응원메시지처럼 다른 사람에게 그대로 노출되는 자유 텍스트를 걸러내는
+  // 경량 금칙어 필터 - 완전한 필터링 솔루션은 아니지만(띄어쓰기/특수문자로 우회 가능) 최소한의
+  // 방어선은 된다. 대소문자·공백 무시하고 부분 문자열로 매칭한다.
+  var BANNED_WORDS = [
+    '씨발', '시발', 'ㅅㅂ', '개새끼', '개새', '병신', 'ㅄ', '지랄', '좆', '좇', '존나', '존니',
+    '미친놈', '미친년', '걸레', '창녀', '창놈', '씹', '보지', '자지', '섹스', '性', '19금', '19禁',
+    '성인용', '야동', '음란', '폰섹', '性교', '性행위', '强간', '강간', 'fuck', 'shit', 'bitch',
+    'porn', 'sex', 'nsfw'
+  ];
+  function containsBannedWord(text) {
+    var normalized = (text || '').toLowerCase().replace(/\s+/g, '');
+    return BANNED_WORDS.some(function (w) { return normalized.indexOf(w.toLowerCase()) >= 0; });
+  }
+
   var THEME_COLORS = [
     { id: 'kakao', label: '카카오 옐로우', primary: '#FEE500', text: '#3C1E1E' },
     { id: 'butter', label: '버터 크림', primary: '#FFE9B8', text: '#5A4321' },
@@ -392,7 +411,7 @@
       ],
       myGifts: [],
       customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
-      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null },
+      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0 },
     };
   }
 
@@ -493,6 +512,7 @@
     var draft = state.ui.giftDraft;
     var amount = draft.customAmount ? Number(draft.customAmount) : draft.amount;
     if (!amount || amount < 100) { showToast('보탤 금액을 선택하거나 입력해주세요'); return; }
+    if (containsBannedWord(draft.message)) { showToast('응원 메시지에 부적절한 단어는 사용할 수 없어요.'); return; }
     var contribution = {
       id: uid('c'), fromName: draft.anonymous ? '익명' : state.user.name, amount: amount,
       message: draft.message.trim(), anonymous: draft.anonymous, at: Date.now(),
@@ -578,11 +598,14 @@
 
   window.wizardNextStep = function () {
     var w = state.ui.createWizard;
-    if (w.step === 1 && w.wishType === 'group' && (!w.groupName.trim() || w.memberIds.length === 0)) {
-      showToast('그룹 이름과 함께할 친구를 선택해주세요');
-      return;
+    if (w.step === 1 && w.wishType === 'group') {
+      if (!w.groupName.trim() || w.memberIds.length === 0) { showToast('그룹 이름과 함께할 친구를 선택해주세요'); return; }
+      if (containsBannedWord(w.groupName)) { showToast('그룹 이름에 부적절한 단어가 포함되어 있어요.'); return; }
     }
-    if (w.step === 4 && !w.title.trim()) { showToast('제목을 입력해주세요'); return; }
+    if (w.step === 4) {
+      if (!w.title.trim()) { showToast('제목을 입력해주세요'); return; }
+      if ([w.title, w.subtitle, w.story].some(containsBannedWord)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    }
     w.step = w.step + 1;
     render();
   };
@@ -724,6 +747,34 @@
     return '<span class="dday' + (d <= 10 ? ' urgent' : '') + '">' + label + '</span>';
   }
 
+  // 카드 우측에 얹는 작은 달성률 도넛 링 위젯 - conic-gradient로 채우고 가운데를 배경색 원으로
+  // 덮어 링 모양을 낸다(실제 SVG 없이 CSS만으로).
+  function gaugeRingHtml(pct) {
+    if (!state.customization.widgets.gaugeRing) return '';
+    return '<div class="gauge-ring" style="background: conic-gradient(var(--primary) ' + pct + '%, #F0EEE7 0);"><div class="gauge-ring-inner">' + pct + '%</div></div>';
+  }
+
+  // "최근 응원 롤링 토스트" 위젯 - 전체 위시의 최근 기여 5건을 모아 몇 초마다 하나씩 돌려 보여준다.
+  function collectRecentCheers() {
+    var items = [];
+    state.wishes.forEach(function (w) {
+      (w.contributions || []).forEach(function (c) {
+        items.push({ fromName: c.fromName, amount: c.amount, wishTitle: w.title, at: c.at });
+      });
+    });
+    items.sort(function (a, b) { return b.at - a.at; });
+    return items.slice(0, 5);
+  }
+
+  function cheerTickerHtml() {
+    if (!state.customization.widgets.cheerToast) return '';
+    var recent = collectRecentCheers();
+    if (!recent.length) return '';
+    var idx = (state.ui.cheerTickerIndex || 0) % recent.length;
+    var c = recent[idx];
+    return '<div class="cheer-ticker">💛 ' + esc(c.fromName) + '님이 "' + esc(c.wishTitle) + '"에 ' + formatWon(c.amount) + ' 보탰어요</div>';
+  }
+
   function wishCardHtml(wish) {
     var pct = Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100));
     var cardCls = 'wish-card style-' + state.customization.cardStyle;
@@ -732,6 +783,7 @@
         '<div class="row-top">' +
           wishAvatarHtml(wish, 30) +
           '<div class="owner">' + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + '</div>' +
+          gaugeRingHtml(pct) +
           ddayBadge(wish.deadline) +
         '</div>' +
         '<div class="title">' + wish.emoji + ' ' + esc(wish.title) + '</div>' +
@@ -751,7 +803,7 @@
     var cards = filtered.length
       ? filtered.map(wishCardHtml).join('')
       : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요</div>';
-    return '<div class="scroll-x">' + chips + '</div>' + cards;
+    return cheerTickerHtml() + '<div class="scroll-x">' + chips + '</div>' + cards;
   }
 
   function renderExplore() {
@@ -984,6 +1036,19 @@
       window.wizardSetStory(e.target);
     }
   });
+
+  // "최근 응원 롤링 토스트" 위젯 - 순수 홈 피드가 보이는 동안만 몇 초마다 다음 응원으로 돌린다.
+  // 위시 상세/위저드/꾸미기 시트가 위에 떠 있을 때는 절대 render()를 부르지 않는다 - 부르면 그
+  // 시트 안에서 타이핑 중인 입력창(id 없는 응원메시지 등)이 몇 초마다 포커스를 잃는, keongyu의
+  // 검색창 버그와 같은 종류의 문제가 생긴다.
+  setInterval(function () {
+    if (!state.customization.widgets.cheerToast || state.ui.tab !== 'home') return;
+    if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen) return;
+    var recent = collectRecentCheers();
+    if (recent.length < 2) return;
+    state.ui.cheerTickerIndex = ((state.ui.cheerTickerIndex || 0) + 1) % recent.length;
+    render();
+  }, 4000);
 
   render();
 })();
