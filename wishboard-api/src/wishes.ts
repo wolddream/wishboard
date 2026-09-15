@@ -154,10 +154,16 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 
 	await upsertUser(env, body.owner_id, body.owner_name || body.owner_id, body.owner_avatar || "😊");
 
+	// wishes.goal_amount/current_amount는 이제 실제로 쓰이지 않는다(진행률은 매번 아이템
+	// 합계로 계산한다) - 다만 그 두 컬럼이 여전히 NOT NULL이라, 값을 안 채우면 INSERT 자체가
+	// SQLITE_CONSTRAINT_NOTNULL로 실패한다. 아이템 목표금액 합계를 그대로 채워 넣는다.
+	const itemGoals = items.map((item) => Math.max(1000, Math.round(Number(item.goal_amount) || 1000)));
+	const totalGoal = itemGoals.reduce((s, g) => s + g, 0);
+
 	const statements = [
 		env.DB.prepare(
-			`INSERT INTO wishes (id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category, deadline)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			`INSERT INTO wishes (id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category, goal_amount, current_amount, deadline)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
 		).bind(
 			wishId,
 			body.owner_id,
@@ -170,6 +176,7 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 			body.story || "",
 			body.emoji || "🎁",
 			body.category || "",
+			totalGoal,
 			body.deadline
 		),
 	];
@@ -181,7 +188,7 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 				(item.name || "").trim().slice(0, 80),
 				(item.link || "").trim().slice(0, 500),
 				(item.image_url || "").trim().slice(0, 500),
-				Math.max(1000, Math.round(Number(item.goal_amount) || 1000)),
+				itemGoals[idx],
 				idx
 			)
 		);
