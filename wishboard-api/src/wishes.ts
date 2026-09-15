@@ -219,6 +219,7 @@ export async function handleDeleteWish(request: Request, env: Env, wishId: strin
 		env.DB.prepare(`DELETE FROM wish_members WHERE wish_id = ?`).bind(wishId),
 		env.DB.prepare(`DELETE FROM wish_items WHERE wish_id = ?`).bind(wishId),
 		env.DB.prepare(`DELETE FROM contributions WHERE wish_id = ?`).bind(wishId),
+		env.DB.prepare(`DELETE FROM chat_messages WHERE wish_id = ?`).bind(wishId),
 	]);
 	return json({ ok: true });
 }
