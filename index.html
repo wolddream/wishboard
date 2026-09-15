@@ -513,17 +513,22 @@
     var amount = draft.customAmount ? Number(draft.customAmount) : draft.amount;
     if (!amount || amount < 100) { showToast('보탤 금액을 선택하거나 입력해주세요'); return; }
     if (containsBannedWord(draft.message)) { showToast('응원 메시지에 부적절한 단어는 사용할 수 없어요.'); return; }
+    // 목표금액을 넘는 만큼은 반영하지 않는다 - 안 그러면 진행률 100%는 넘지 않게 캡핑해두고서
+    // (currentAmount에는 Math.min을 걸어두고) 정작 응원 방명록/내 선물내역/알림에는 사용자가
+    // 입력한 원래 금액이 그대로 찍혀, 실제 반영된 금액과 기록이 서로 어긋나는 문제가 있었다.
+    var remaining = wish.goalAmount - wish.currentAmount;
+    var applied = Math.min(amount, remaining);
     var contribution = {
-      id: uid('c'), fromName: draft.anonymous ? '익명' : state.user.name, amount: amount,
+      id: uid('c'), fromName: draft.anonymous ? '익명' : state.user.name, amount: applied,
       message: draft.message.trim(), anonymous: draft.anonymous, at: Date.now(),
     };
     wish.contributions.unshift(contribution);
-    wish.currentAmount = Math.min(wish.goalAmount, wish.currentAmount + amount);
-    state.myGifts.unshift({ id: uid('g'), toWishId: wish.id, toName: wish.ownerName, wishTitle: wish.title, category: wish.category, amount: amount, at: Date.now() });
-    state.notifications.unshift({ id: uid('n'), type: 'gift_arrived', text: (draft.anonymous ? '익명의 친구' : state.user.name) + '님이 "' + wish.title + '"에 ' + formatWon(amount) + '을 보탰어요', at: Date.now(), read: true });
+    wish.currentAmount += applied;
+    state.myGifts.unshift({ id: uid('g'), toWishId: wish.id, toName: wish.ownerName, wishTitle: wish.title, category: wish.category, amount: applied, at: Date.now() });
+    state.notifications.unshift({ id: uid('n'), type: 'gift_arrived', text: (draft.anonymous ? '익명의 친구' : state.user.name) + '님이 "' + wish.title + '"에 ' + formatWon(applied) + '을 보탰어요', at: Date.now(), read: true });
     closeWishDetail();
     saveState();
-    showToast('🎉 카카오페이로 ' + formatWon(amount) + ' 보탰어요!');
+    showToast(applied < amount ? ('🎉 목표금액까지만 반영돼서 ' + formatWon(applied) + ' 보탰어요!') : ('🎉 카카오페이로 ' + formatWon(applied) + ' 보탰어요!'));
   };
 
   // ---- Create wizard ----
@@ -605,6 +610,11 @@
     if (w.step === 4) {
       if (!w.title.trim()) { showToast('제목을 입력해주세요'); return; }
       if ([w.title, w.subtitle, w.story].some(containsBannedWord)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+      // 목표금액/마감일에 0이나 음수를 넣으면(예: -5000) `Number(w.goal) || 100000`이 -5000을
+      // 그대로 통과시켜(0이 아니라 truthy라서) 진행률 계산(currentAmount/goalAmount)이 통째로
+      // 깨지는 위시가 만들어졌다 - 다음 단계로 못 넘어가게 여기서 미리 막는다.
+      if (!(Number(w.goal) >= 1000)) { showToast('목표 금액은 1,000원 이상으로 입력해주세요.'); return; }
+      if (!(Number(w.days) >= 1)) { showToast('마감일은 1일 이상으로 입력해주세요.'); return; }
     }
     w.step = w.step + 1;
     render();
@@ -629,7 +639,9 @@
       id: uid('w'), ownerId: state.user.id, ownerName: state.user.name, ownerAvatar: state.user.avatar,
       type: isGroup ? 'group' : 'personal', groupName: isGroup ? w.groupName.trim() : '', members: members,
       title: w.title.trim(), subtitle: w.subtitle.trim(), story: w.story.trim(), emoji: w.emoji, category: w.occasion,
-      goalAmount: Number(w.goal) || 100000, currentAmount: 0, deadline: addDays(Number(w.days) || 14),
+      // `|| 100000`은 0/NaN만 걸러내고 음수는 그대로 통과시켜(-5000은 truthy) 진행률 계산을
+      // 깨뜨렸던 지점 - wizardNextStep에서 이미 막고 있지만 여기서도 Math.max로 한 번 더 보장한다.
+      goalAmount: Math.max(1000, Number(w.goal) || 100000), currentAmount: 0, deadline: addDays(Math.max(1, Number(w.days) || 14)),
       createdAt: Date.now(), contributions: [],
     };
     state.wishes.unshift(wish);
@@ -743,7 +755,7 @@
   function ddayBadge(deadline) {
     var d = daysUntil(deadline);
     if (!state.customization.widgets.dday) return '';
-    var label = d <= 0 ? '오늘 마감' : 'D-' + d;
+    var label = d < 0 ? '마감 지남' : d === 0 ? '오늘 마감' : 'D-' + d;
     return '<span class="dday' + (d <= 10 ? ' urgent' : '') + '">' + label + '</span>';
   }
 
