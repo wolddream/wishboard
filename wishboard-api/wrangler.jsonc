@@ -13,14 +13,12 @@
 	"upload_source_maps": true,
 	/**
 	 * Bindings
-	 * PLACEHOLDER database_id - D1 데이터베이스를 만들고 나면 실제 id로 바꿔야 합니다.
-	 * (Cloudflare 대시보드 > Workers & Pages > D1 > 데이터베이스 만들기 > "wishboard-db")
 	 */
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "wishboard-db",
-			"database_id": "REPLACE_WITH_REAL_D1_DATABASE_ID"
+			"database_id": "ce08dbcd-4399-44de-8c76-cb76969a9e89"
 		}
 	]
 }
