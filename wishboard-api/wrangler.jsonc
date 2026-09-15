@@ -20,7 +20,7 @@
 		{
 			"binding": "DB",
 			"database_name": "wishboard-db",
-			"database_id": "REPLACE_WITH_REAL_D1_DATABASE_ID"
+			            "database_id": "ce08dbcd-4399-44de-8c76-cb76969a9e89"
 		}
 	]
 }
