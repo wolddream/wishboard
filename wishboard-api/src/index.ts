@@ -5,6 +5,7 @@
  *   GET    /api/wishes                 -> list all wishes (+ members, contributions)
  *   POST   /api/wishes                 -> create a wish (personal or group)
  *   DELETE /api/wishes/:id?user_id=    -> delete a wish (owner or group member only)
+ *   PATCH  /api/wishes/:id             -> edit a wish's content (owner only)
  *   POST   /api/wishes/:id/gift        -> send a contribution (server caps at goal, fans out notifications)
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
  *   GET    /api/users/:id              -> profile lookup (name/avatar)
@@ -22,7 +23,7 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePostGift, handleJoinWish } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handlePostGift, handleJoinWish } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
@@ -46,6 +47,9 @@ export default {
 			// /api/wishes/:id
 			if (segments[0] === "api" && segments[1] === "wishes" && segments.length === 3 && request.method === "DELETE") {
 				return cors(await handleDeleteWish(request, env, segments[2]));
+			}
+			if (segments[0] === "api" && segments[1] === "wishes" && segments.length === 3 && request.method === "PATCH") {
+				return cors(await handlePatchWish(request, env, segments[2]));
 			}
 			// /api/wishes/:id/gift
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && request.method === "POST") {

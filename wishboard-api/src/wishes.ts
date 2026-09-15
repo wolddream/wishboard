@@ -172,6 +172,34 @@ export async function handleDeleteWish(request: Request, env: Env, wishId: strin
 	return json({ ok: true });
 }
 
+// 삭제와 같은 신뢰 모델(owner만) - 단, 단체 위시 멤버는 수정 권한까지는 없다(내용은 만든
+// 사람만 고칠 수 있고, 멤버는 초대 링크로 합류해 선물만 보태는 역할).
+export async function handlePatchWish(request: Request, env: Env, wishId: string): Promise<Response> {
+	const body = (await request.json()) as {
+		user_id?: string;
+		title?: string;
+		subtitle?: string;
+		story?: string;
+		goal_amount?: number;
+		deadline?: string;
+	};
+	const wish = await env.DB.prepare(`SELECT owner_id, current_amount FROM wishes WHERE id = ?`)
+		.bind(wishId)
+		.first<{ owner_id: string; current_amount: number }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== body.user_id) return json({ error: "수정 권한이 없어요" }, 403);
+	if (!body.title || !body.deadline) return json({ error: "title, deadline are required" }, 400);
+
+	// 이미 모인 금액보다 목표를 낮출 수는 없다 - 진행률이 100%를 넘어버리는 걸 막는다.
+	const goalAmount = Math.max(wish.current_amount, Math.round(Number(body.goal_amount) || wish.current_amount || 1000));
+
+	await env.DB.prepare(`UPDATE wishes SET title = ?, subtitle = ?, story = ?, goal_amount = ?, deadline = ? WHERE id = ?`)
+		.bind(body.title, body.subtitle || "", body.story || "", goalAmount, body.deadline, wishId)
+		.run();
+
+	return json({ ok: true });
+}
+
 // 단체 위시는 만들 때 멤버를 미리 고르지 않는다(진짜 친구 목록이 없어서) - 대신 만든 사람이
 // "초대 링크"(?join=wishId)를 공유하면, 그 링크로 들어온 사람이 이 엔드포인트로 스스로 합류한다.
 // keongyu의 "함께가기 참여 링크"와 같은 패턴.

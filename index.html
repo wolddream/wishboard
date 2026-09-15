@@ -358,9 +358,13 @@
   // 단체 위시는 ownerId 한 명이 아니라 members[] 전체가 "내 위시"일 수 있다 - 개인 위시의
   // ownerId 비교와 단체 위시의 members 소속 여부 확인을 한 곳에서 처리해 여기저기 흩어진
   // "ownerId === state.user.id" 비교가 단체 위시를 놓치지 않도록 한다.
+  // 단체 위시는 만든 사람(owner)이 wish_members에는 안 들어가 있다(멤버는 초대 링크로
+  // 합류하는 사람만) - ownerId 매칭을 먼저 안 보면 정작 만든 사람 본인이 "내 위시"에서
+  // 빠지는 버그가 생긴다.
   function isWishMine(wish) {
+    if (wish.ownerId === state.user.id) return true;
     if (wish.type === 'group') return (wish.members || []).some(function (m) { return m.id === state.user.id; });
-    return wish.ownerId === state.user.id;
+    return false;
   }
 
   function wishOwnerLabel(wish) {
@@ -393,7 +397,7 @@
       wishes: [],
       notifications: [],
       customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
-      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true },
+      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false },
     };
   }
 
@@ -523,7 +527,7 @@
     state.ui.giftDraft = { amount: 3000, customAmount: '', message: '', anonymous: false };
     render();
   };
-  window.closeWishDetail = function () { state.ui.wishDetailId = null; state.ui.giftDraft = null; render(); };
+  window.closeWishDetail = function () { state.ui.wishDetailId = null; state.ui.giftDraft = null; state.ui.editWishDraft = null; render(); };
 
   window.deleteWish = function (id) {
     if (!confirm('이 위시를 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
@@ -537,6 +541,49 @@
       .catch(function () { showToast('삭제에 실패했어요. 다시 시도해주세요.'); });
   };
 
+  // 위시 내용 수정 - 만든 사람만(owner) 가능. 잘못 적었거나 상황이 바뀐 위시를 지웠다 다시
+  // 만들지 않아도 되게 한다. 목표금액을 이미 모인 금액보다 낮추는 것 등은 서버가 최종 방어.
+  window.startEditWish = function (wishId) {
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    if (!wish) return;
+    state.ui.editWishDraft = { id: wish.id, title: wish.title, subtitle: wish.subtitle, story: wish.story, goal: wish.goalAmount, deadline: wish.deadline };
+    render();
+  };
+  window.cancelEditWish = function () { state.ui.editWishDraft = null; render(); };
+  window.setEditWishField = function (key, el) { if (state.ui.editWishDraft) state.ui.editWishDraft[key] = el.value; };
+  window.saveEditWish = function () {
+    var d = state.ui.editWishDraft;
+    if (!d) return;
+    var title = (d.title || '').trim();
+    if (!title) { showToast('제목을 입력해주세요'); return; }
+    if (!d.deadline) { showToast('마감일을 선택해주세요'); return; }
+    if (containsBannedWord(title) || containsBannedWord(d.subtitle) || containsBannedWord(d.story)) {
+      showToast('부적절한 단어는 사용할 수 없어요.');
+      return;
+    }
+    state.ui.savingWishEdit = true;
+    render();
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.id), {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        user_id: state.user.id, title: title, subtitle: (d.subtitle || '').trim(),
+        story: (d.story || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000), deadline: d.deadline,
+      }),
+    })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('edit failed')); })
+      .then(function () {
+        state.ui.editWishDraft = null;
+        state.ui.savingWishEdit = false;
+        showToast('위시 내용을 수정했어요!');
+        syncWishesFromServer();
+      })
+      .catch(function () {
+        state.ui.savingWishEdit = false;
+        render();
+        showToast('수정에 실패했어요. 다시 시도해주세요.');
+      });
+  };
+
   // 단체 위시 초대 링크 복사 - 친구 목록이 없어서 위시 만들 때 미리 멤버를 고를 수 없는 대신,
   // 만든 뒤 이 링크를 공유하면 받은 사람이 스스로 합류한다.
   window.copyInviteLink = function (wishId) {
@@ -547,6 +594,27 @@
         .catch(function () { showToast(link); });
     } else {
       showToast(link);
+    }
+  };
+
+  // 카카오톡으로 바로 초대 - 'text' objectType(이미지 없이 텍스트+링크)을 쓴다. 실제 존재하지
+  // 않는 og-image URL을 imageUrl로 넘기면(keongyu에서 겪은 문제) 받는 사람 화면에 "찾을 수
+  // 없음"으로 뜨는 카드가 되므로, 브랜드 이미지 에셋이 따로 없는 지금은 이 방식이 안전하다.
+  window.shareInviteViaKakao = function (wishId) {
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    var link = location.origin + location.pathname + '?join=' + encodeURIComponent(wishId);
+    if (!window.Kakao || !Kakao.isInitialized() || !Kakao.Share || typeof Kakao.Share.sendDefault !== 'function') {
+      showToast('카카오톡 공유를 사용할 수 없어요. 링크 복사를 이용해주세요.');
+      return;
+    }
+    try {
+      Kakao.Share.sendDefault({
+        objectType: 'text',
+        text: (wish ? wish.emoji + ' ' + wish.title + '\n' : '') + '위시보드에서 함께 위시를 채워봐요! 아래 링크로 참여해보세요 💌',
+        link: { mobileWebUrl: link, webUrl: link },
+      });
+    } catch (err) {
+      showToast('카카오톡 공유창을 여는 데 실패했어요.');
     }
   };
 
@@ -1078,6 +1146,8 @@
     var draft = state.ui.giftDraft;
     var pct = Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100));
     var isMine = isWishMine(wish);
+    var ed = state.ui.editWishDraft;
+    var editing = ed && ed.id === wish.id;
     var amounts = [1000, 3000, 5000, 10000, 50000];
     var amountChips = amounts.map(function (a) {
       return '<div class="amount-chip' + (draft.amount === a && !draft.customAmount ? ' active' : '') + '" onclick="pickGiftAmount(' + a + ')">' + (a >= 10000 ? (a / 10000) + '만' : a.toLocaleString()) + '</div>';
@@ -1093,7 +1163,11 @@
     // 단체 위시면 친구 목록이 없는 대신 초대 링크로 서로를 불러야 하니 그 버튼도 같이 둔다.
     var giftForm = isMine
       ? '' +
-        (wish.type === 'group' ? '<button class="btn-primary" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">👥 친구 초대 링크 복사</button>' : '') +
+        (wish.type === 'group' ? '' +
+          '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 초대하기</button>' +
+          '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 초대 링크 복사</button>'
+          : '') +
+        '<button class="btn-ghost" style="margin-top:4px;" onclick="startEditWish(\'' + wish.id + '\')">✏️ 위시 내용 수정</button>' +
         '<button class="btn-ghost" style="color:var(--danger); margin-top:4px;" onclick="deleteWish(\'' + wish.id + '\')">🗑️ 이 위시 삭제하기</button>'
       : '' +
       '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">얼마나 보탤까요?</div>' +
@@ -1103,19 +1177,33 @@
       '<div class="option-item' + (draft.anonymous ? ' active' : '') + '" onclick="toggleGiftAnonymous()"><span>🙈 익명으로 보내기</span><button class="toggle' + (draft.anonymous ? ' on' : '') + '"></button></div>' +
       '<button class="btn-primary" ' + (state.ui.sendingGift ? 'disabled' : '') + ' onclick="sendGift()">' + (state.ui.sendingGift ? '⏳ 보내는 중...' : '💛 카카오페이로 보태기') + '</button>';
 
+    var editForm = editing ? '' +
+      '<input type="text" placeholder="위시 제목 *" value="' + esc(ed.title) + '" oninput="setEditWishField(\'title\', this)" />' +
+      '<input type="text" placeholder="한 줄 소개" value="' + esc(ed.subtitle) + '" oninput="setEditWishField(\'subtitle\', this)" />' +
+      '<div style="display:flex; gap:8px;">' +
+        '<input type="number" placeholder="목표 금액(원)" value="' + esc(ed.goal) + '" oninput="setEditWishField(\'goal\', this)" style="flex:1;" />' +
+        '<input type="date" value="' + esc(ed.deadline) + '" oninput="setEditWishField(\'deadline\', this)" style="width:150px;" />' +
+      '</div>' +
+      '<textarea rows="4" placeholder="위시에 대한 이야기" oninput="setEditWishField(\'story\', this)">' + esc(ed.story) + '</textarea>' +
+      '<div style="display:flex; gap:8px; margin-top:4px;">' +
+        '<button class="btn-ghost" style="flex:1;" onclick="cancelEditWish()">취소</button>' +
+        '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingWishEdit ? 'disabled' : '') + ' onclick="saveEditWish()">' + (state.ui.savingWishEdit ? '저장 중...' : '저장하기') + '</button>' +
+      '</div>' : '';
+
     return '' +
       '<div class="sheet-backdrop" onclick="closeWishDetail()">' +
         '<div class="bottom-sheet" onclick="event.stopPropagation()">' +
           '<div class="sheet-head"><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><button class="icon-btn" onclick="closeWishDetail()">✕</button></div>' +
           '<div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-sub);">' + wishAvatarHtml(wish, 26) + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + ' · ' + ddayBadge(wish.deadline) + '</div>' +
-          (wish.story ? '<div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">' + esc(wish.story) + '</div>' : '') +
-          '<div>' +
-            '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
-            '<div class="stat-row"><span class="pct">' + pct + '% 달성</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
-          '</div>' +
-          giftForm +
-          '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💌 응원 방명록</div>' +
-          '<div>' + timeline + '</div>' +
+          (editing ? editForm : '' +
+            (wish.story ? '<div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">' + esc(wish.story) + '</div>' : '') +
+            '<div>' +
+              '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
+              '<div class="stat-row"><span class="pct">' + pct + '% 달성</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
+            '</div>' +
+            giftForm +
+            '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💌 응원 방명록</div>' +
+            '<div>' + timeline + '</div>') +
         '</div>' +
       '</div>';
   }

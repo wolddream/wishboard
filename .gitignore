@@ -1,2 +1,4 @@
 serve.ps1
 mock-api.ps1
+mock-api.log
+mock-api-err.log
