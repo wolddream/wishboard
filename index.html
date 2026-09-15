@@ -74,7 +74,7 @@
   }
   /* 눌렀을 때 살짝 눌리는 느낌 - 카카오페이/토스류 앱들이 탭 가능한 요소 전반에 공통으로 주는
      피드백. 실제 기기(터치)에서만 의미가 있어 hover가 아니라 active에만 건다. */
-  .wish-card:active, .reco-card:active, .template-card:active, .occasion-tile:active, .option-item:active,
+  .wish-card:active, .template-card:active, .occasion-tile:active, .option-item:active,
   .amount-chip:active, .chip:active, .swatch:active { transform: scale(0.97); }
   .btn-primary, .btn-ghost, #fab, .icon-btn { transition: transform 0.12s ease; }
   .btn-primary:active, .btn-ghost:active, #fab:active, .icon-btn:active { transform: scale(0.94); }
@@ -147,12 +147,13 @@
 
   /* 위시 상세는 팝업(바텀시트)이 아니라 진짜 화면 전환처럼 보이게 - 뒤로가기(브라우저/안드로이드
      제스처 포함)로 나갈 수 있도록 history.pushState + hashchange로 여닫는다(아래 스크립트 참고). */
+  /* 애니메이션을 일부러 안 넣었다 - render()가 매번 #root를 통째로 다시 그려서 .detail-page도
+     매번 "새" 엘리먼트가 되는데, CSS 애니메이션을 걸어두면 그때마다(예: 선물하기 폼을 펼치거나
+     채팅 폴링으로 메시지가 갱신될 때) 다시 재생되어 화면이 깜빡이는 것처럼 보였다. */
   .detail-page {
     position: fixed; inset: 0; z-index: 110; background: var(--bg); overflow-y: auto;
     display: flex; flex-direction: column; gap: 14px; padding: 14px 18px calc(18px + env(safe-area-inset-bottom));
-    animation: page-in 0.22s cubic-bezier(0.2,0.8,0.3,1);
   }
-  @keyframes page-in { from { transform: translateX(28px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   textarea, input[type="text"], input[type="number"] {
     width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 13.5px;
     background: #fff; color: var(--text);
@@ -204,10 +205,6 @@
   }
 
   /* Explore recommendation card */
-  .reco-card { background: var(--card); border-radius: 16px; padding: 14px; margin: 0 16px 12px; border: 1px solid var(--border); }
-  .reco-card .match { font-size: 11px; font-weight: 900; color: #1D9C77; background: rgba(45,212,160,0.14); padding: 2px 8px; border-radius: 999px; }
-  .reco-card .reasons { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
-  .reco-card .reason { font-size: 10.5px; font-weight: 700; color: var(--text-sub); background: #F5F3EE; padding: 3px 8px; border-radius: 8px; }
 
   /* Customization */
   .swatch-row { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -338,13 +335,6 @@
     { type: 'challenge', label: '🏃 도전' },
     { type: 'anniversary', label: '💍 기념일' },
   ];
-  var BUDGET_TIERS = [
-    { id: 'all', label: '전체', min: 0, max: Infinity },
-    { id: 'small', label: '소액 보태기 (~1.5만)', min: 0, max: 15000 },
-    { id: 'practical', label: '실속형 (1.5~3.5만)', min: 15000, max: 35000 },
-    { id: 'sincere', label: '정성 선물 (3.5~6만)', min: 35000, max: 60000 },
-    { id: 'premium', label: '프리미엄 (6만~)', min: 60000, max: Infinity },
-  ];
 
   function uid(prefix) { return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
   function esc(str) {
@@ -407,7 +397,7 @@
       notifications: [],
       customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
       ui: {
-        tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null,
+        tab: 'home', categoryFilter: 'all', wishDetailId: null, giftDraft: null, createWizard: null,
         customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false,
         homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
         chatWishId: null, chatPeerId: null, chatThreads: null, chatMessages: null, chatDraft: '', sendingChat: false,
@@ -535,7 +525,6 @@
   window.setTab = function (tab) { state.ui.tab = tab; render(); };
   window.setCategoryFilter = function (c) { state.ui.categoryFilter = c; render(); };
   window.onHomeSearchInput = function (el) { state.ui.homeSearch = el.value; render(); };
-  window.setBudgetTier = function (b) { state.ui.budgetTier = b; render(); };
 
   // 위시 상세는 바텀시트 팝업이 아니라 진짜 "페이지 이동"처럼 동작해야 해서(뒤로가기로
   // 나가야 함), state만 바꾸는 게 아니라 실제로 history를 한 칸 쌓는다 - 그래야 브라우저/
@@ -806,25 +795,34 @@
       });
   };
 
-  // 단체 위시 초대 링크 복사 - 친구 목록이 없어서 위시 만들 때 미리 멤버를 고를 수 없는 대신,
-  // 만든 뒤 이 링크를 공유하면 받은 사람이 스스로 합류한다.
+  // 위시 공유 링크 - 단체 위시는 "?join=" 링크(받은 사람이 그 링크로 스스로 합류), 개인 위시는
+  // "#wish=" 딥링크(그냥 보고 선물할 수 있게)로 갈린다. 링크 복사/카카오톡 공유 둘 다 공통으로 쓴다.
+  function buildShareLink(wish) {
+    return wish.type === 'group'
+      ? location.origin + location.pathname + '?join=' + encodeURIComponent(wish.id)
+      : location.origin + location.pathname + '#wish=' + encodeURIComponent(wish.id);
+  }
   window.copyInviteLink = function (wishId) {
-    var link = location.origin + location.pathname + '?join=' + encodeURIComponent(wishId);
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    if (!wish) return;
+    var link = buildShareLink(wish);
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(link)
-        .then(function () { showToast('초대 링크가 복사됐어요! 친구에게 보내보세요 💌'); })
+        .then(function () { showToast('링크가 복사됐어요! 친구에게 보내보세요 💌'); })
         .catch(function () { showToast(link); });
     } else {
       showToast(link);
     }
   };
 
-  // 카카오톡으로 바로 초대 - 'text' objectType(이미지 없이 텍스트+링크)을 쓴다. 실제 존재하지
+  // 카카오톡으로 바로 공유 - 'text' objectType(이미지 없이 텍스트+링크)을 쓴다. 실제 존재하지
   // 않는 og-image URL을 imageUrl로 넘기면(keongyu에서 겪은 문제) 받는 사람 화면에 "찾을 수
   // 없음"으로 뜨는 카드가 되므로, 브랜드 이미지 에셋이 따로 없는 지금은 이 방식이 안전하다.
   window.shareInviteViaKakao = function (wishId) {
     var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
-    var link = location.origin + location.pathname + '?join=' + encodeURIComponent(wishId);
+    if (!wish) return;
+    var link = buildShareLink(wish);
+    var isGroup = wish.type === 'group';
     if (!window.Kakao || !Kakao.isInitialized() || !Kakao.Share || typeof Kakao.Share.sendDefault !== 'function') {
       showToast('카카오톡 공유를 사용할 수 없어요. 링크 복사를 이용해주세요.');
       return;
@@ -832,7 +830,7 @@
     try {
       Kakao.Share.sendDefault({
         objectType: 'text',
-        text: (wish ? wish.emoji + ' ' + wish.title + '\n' : '') + '위시보드에서 함께 위시를 채워봐요! 아래 링크로 참여해보세요 💌',
+        text: wish.emoji + ' ' + wish.title + '\n' + (isGroup ? '위시보드에서 함께 위시를 채워봐요! 아래 링크로 참여해보세요 💌' : '위시보드에서 제 위시를 확인해보세요! 선물도 보낼 수 있어요 💌'),
         link: { mobileWebUrl: link, webUrl: link },
       });
     } catch (err) {
@@ -1158,57 +1156,11 @@
     return gifts;
   }
 
-  function computeRecommendations(budgetTier) {
-    var tier = BUDGET_TIERS.filter(function (t) { return t.id === budgetTier; })[0] || BUDGET_TIERS[0];
-    var candidates = state.wishes.filter(function (w) { return !isWishMine(w) && w.goalAmount > 0 && w.currentAmount < w.goalAmount; });
-    var myGifts = computeMyGiftStats();
-    var results = candidates.map(function (wish) {
-      var remain = wish.goalAmount - wish.currentAmount;
-      var dday = daysUntil(wish.deadline);
-
-      // 과거 이 사람에게 보낸 선물 이력(카테고리 매칭) 점수
-      var pastMatch = myGifts.filter(function (g) { return g.toName === wish.ownerName; });
-      var categoryMatchPast = pastMatch.some(function (g) { return g.category === wish.category; });
-
-      var score = 0;
-      var reasons = [];
-      // 1. 위시 연계 (남은 목표금액 대비 진행도)
-      var progressPct = Math.round((wish.currentAmount / wish.goalAmount) * 100);
-      if (progressPct >= 50 && progressPct < 100) { score += 34; reasons.push('목표 ' + progressPct + '% 달성 · 조금만 더 보태면 완주'); }
-      else { score += 18; reasons.push('현재 ' + progressPct + '% 달성 중'); }
-      // 2. 과거 선물 이력
-      if (categoryMatchPast) { score += 30; reasons.push('평소 이 카테고리 선물을 자주 보내셨어요'); }
-      else if (pastMatch.length > 0) { score += 16; reasons.push(wish.ownerName + '님께 이전에도 선물한 적 있어요'); }
-      // 3. 타이밍(디데이)
-      if (dday <= 10) { score += 35; reasons.push('D-' + dday + ', 골든타임이에요'); }
-      else if (dday <= 25) { score += 18; reasons.push('D-' + dday + ', 여유 있게 준비 가능'); }
-      else { score += 8; reasons.push('D-' + dday); }
-
-      // tier.max === Infinity는 '전체'(min 0)와 '프리미엄'(min 60000) 둘 다 해당되는데, 예전에는
-      // 이 조건이면 무조건 30000원으로 제안해서 - 프리미엄 탭을 골라도 제안액이 항상 30000원에
-      // 묶여 있으니 바로 아래 필터(suggestedAmount >= tier.min, 즉 >= 60000)를 절대 못 넘어
-      // "프리미엄" 탭이 뭘 골라도 결과가 하나도 안 뜨는 버그였다. tier.min을 반영해야 한다.
-      var suggestedAmount = (tier.max === Infinity)
-        ? Math.min(remain, Math.max(tier.min, 30000))
-        : Math.min(remain, Math.round((tier.min + Math.min(tier.max, remain)) / 2) || 10000);
-      return {
-        wish: wish, score: Math.min(99, score), reasons: reasons.slice(0, 4),
-        suggestedAmount: Math.max(1000, Math.round(suggestedAmount / 1000) * 1000),
-      };
-    });
-    if (tier.id !== 'all') {
-      results = results.filter(function (r) { return r.suggestedAmount >= tier.min && r.suggestedAmount <= (tier.max === Infinity ? 1e9 : tier.max); });
-    }
-    results.sort(function (a, b) { return b.score - a.score; });
-    return results;
-  }
-
   // ============ Render templates ============
   function renderApp() {
     var html = '';
     html += renderTopbar();
     if (state.ui.tab === 'home') html += renderHome();
-    else if (state.ui.tab === 'explore') html += renderExplore();
     else if (state.ui.tab === 'notif') html += renderNotifications();
     else if (state.ui.tab === 'my') html += renderMyPage();
     html += renderBottomNav();
@@ -1222,7 +1174,7 @@
   }
 
   function renderTopbar() {
-    var titles = { home: '위시보드', explore: '탐색', notif: '알림', my: '마이페이지' };
+    var titles = { home: '위시보드', notif: '알림', my: '마이페이지' };
     var unread = state.notifications.filter(function (n) { return !n.read; }).length;
     return '' +
       '<div id="topbar">' +
@@ -1313,29 +1265,6 @@
     return cheerTickerHtml() + searchBar + '<div class="scroll-x">' + chips + '</div>' + cards;
   }
 
-  function renderExplore() {
-    var tier = state.ui.budgetTier;
-    var recos = computeRecommendations(tier);
-    var chips = BUDGET_TIERS.map(function (b) {
-      return '<button class="chip' + (tier === b.id ? ' active' : '') + '" onclick="setBudgetTier(\'' + b.id + '\')">' + esc(b.label) + '</button>';
-    }).join('');
-    var cards = recos.length ? recos.map(function (r) {
-      var pct = Math.round((r.wish.currentAmount / r.wish.goalAmount) * 100);
-      return '' +
-        '<div class="reco-card">' +
-          '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-            '<div style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:800;">' + wishAvatarHtml(r.wish, 22) + (r.wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(r.wish) + '</div>' +
-            '<span class="match">매칭 ' + r.score + '%</span>' +
-          '</div>' +
-          '<div style="font-size:14.5px; font-weight:900; margin-top:6px;">' + r.wish.emoji + ' ' + esc(r.wish.title) + '</div>' +
-          '<div class="gauge-track" style="margin-top:8px;"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
-          '<div class="reasons">' + r.reasons.map(function (rs) { return '<span class="reason">' + esc(rs) + '</span>'; }).join('') + '</div>' +
-          '<button class="btn-primary" style="margin-top:4px;" onclick="openWishDetail(\'' + r.wish.id + '\')">💛 카카오페이로 ' + formatWon(r.suggestedAmount) + ' 보태기</button>' +
-        '</div>';
-    }).join('') : '<div class="empty-state">🔍<br/>이 예산대에 맞는 추천이 없어요</div>';
-    return '<div style="padding:2px 16px 8px; font-size:12px; color:var(--text-sub);">친구 위시·과거 선물·취향·타이밍을 분석해 추천해요</div><div class="scroll-x">' + chips + '</div>' + cards;
-  }
-
   function renderNotifications() {
     if (!state.notifications.length) return '<div class="empty-state">🔔<br/>아직 알림이 없어요</div>';
     var icons = { gift_arrived: '🎉', dday_soon: '⏰', cheer_comment: '💬', chat_message: '💬' };
@@ -1393,7 +1322,6 @@
   function renderBottomNav() {
     var tabs = [
       { id: 'home', ic: '🏠', label: '홈' },
-      { id: 'explore', ic: '🧭', label: '탐색' },
       { id: 'notif', ic: '🔔', label: '알림' },
       { id: 'my', ic: '👤', label: '마이' },
     ];
@@ -1485,11 +1413,12 @@
 
     // isMine일 땐 내 위시라 남에게 선물 못 하니 빈 문자열이었는데, 그러면 정작 만든 위시를
     // 지울 방법이 하나도 없었다(데모 중에 테스트로 만든 위시가 계속 쌓이기만 함) - 삭제 버튼을 둔다.
-    // 단체 위시면 친구 목록이 없는 대신 초대 링크로 서로를 불러야 하니 그 버튼도 같이 둔다.
+    // 단체 위시는 초대 링크로 서로를 불러야 하고, 개인 위시도 카카오톡 공유는 그대로 유용하다
+    // (선물 받고 싶은 위시를 친구에게 알리는 용도) - 위시 종류와 무관하게 항상 보여준다.
     // 위시 전체 수정/삭제 버튼은 아이템별 수정/삭제(✏️/🗑️)가 생기면서 뺐다 - 사용자 요청.
-    var ownerActions = (isMine && wish.type === 'group') ? '' +
-      '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 초대하기</button>' +
-      '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 초대 링크 복사</button>'
+    var ownerActions = isMine ? '' +
+      '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 공유하기</button>' +
+      '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 링크 복사</button>'
       : '';
 
     var editForm = editing ? '' +
@@ -1735,14 +1664,23 @@
 
   // 채팅창이 열려있는 동안엔 4초마다 조용히 새 메시지를 받아온다(실시간 웹소켓 없이 폴링으로
   // "실시간"에 가깝게 흉내). 조합 중 render() 스킵은 render() 자체의 IME 가드가 처리한다.
+  // 새 메시지가 실제로 없으면 render()를 아예 안 부른다 - .detail-page에 걸린 등장 애니메이션이
+  // render()마다(즉 DOM을 새로 만들 때마다) 다시 재생돼서, 변경 없이도 4초마다 화면이 깜빡이는
+  // 것처럼 보였다.
   setInterval(function () {
     if (!state.ui.chatWishId || !state.ui.chatPeerId) return;
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(state.ui.chatWishId) + '/chat?peer_id=' + encodeURIComponent(state.ui.chatPeerId))
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
         if (!data || state.ui.chatWishId === null || state.ui.chatPeerId === null) return;
-        state.ui.chatMessages = data.messages || [];
+        var next = data.messages || [];
+        var prev = state.ui.chatMessages || [];
+        var changed = next.length !== prev.length || (next.length && prev.length && next[next.length - 1].id !== prev[prev.length - 1].id);
+        if (!changed) return;
+        state.ui.chatMessages = next;
         render();
+        var el = document.querySelector('.chat-scroll');
+        if (el) el.scrollTop = el.scrollHeight;
       })
       .catch(function () {});
   }, 4000);
