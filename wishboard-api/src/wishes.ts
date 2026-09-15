@@ -1,4 +1,4 @@
-import { json, uid } from "./util";
+import { json, uid, upsertUser } from "./util";
 
 interface WishRow {
 	id: string;
@@ -62,19 +62,6 @@ function wishRowToClient(row: WishRow, members: MemberRow[], contributions: Cont
 			at: c.created_at,
 		})),
 	};
-}
-
-// user_id/name/avatar를 그대로 믿는다 - keongyu와 같은 신뢰 모델. 다만 실제로 온 값이 있으면
-// users 테이블에 최신 이름/아바타로 upsert해둬서, 다른 사람이 그 user_id를 조회할 때(예: 알림에
-// 표시할 이름) 최신 정보를 쓸 수 있게 한다.
-async function upsertUser(env: Env, id: string, name: string, avatar: string): Promise<void> {
-	if (!id) return;
-	await env.DB.prepare(
-		`INSERT INTO users (id, name, avatar) VALUES (?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET name = excluded.name, avatar = excluded.avatar`
-	)
-		.bind(id, name || id, avatar || "😊")
-		.run();
 }
 
 export async function handleGetWishes(env: Env): Promise<Response> {

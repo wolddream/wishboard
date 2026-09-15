@@ -11,18 +11,21 @@
  *   PATCH  /api/users/:id              -> update profile (name/avatar) - upserts
  *   GET    /api/notifications?user_id= -> a user's notifications
  *   POST   /api/notifications/:id/read -> mark one notification read
+ *   GET    /oauth/kakao/callback       -> Kakao OAuth code exchange (redirects back to frontend)
  *
  * Bindings (wrangler.jsonc): DB (D1)
  *
  * No real session auth: every endpoint trusts whatever user_id/name/avatar the client sends,
  * same trust model as keongyu-api. "친구" 관계 테이블은 없다 - keongyu의 공개 라우트 피드처럼,
- * 위시도 전체가 하나의 공유 피드다.
+ * 위시도 전체가 하나의 공유 피드다. Kakao login just picks the trusted user_id for the client
+ * (kakao_<kakao id>) instead of a random anonymous one - it doesn't add a real session either.
  */
 import "./types";
 import { cors, json } from "./util";
 import { handleGetWishes, handlePostWish, handleDeleteWish, handlePostGift, handleJoinWish } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead } from "./notifications";
+import { handleKakaoCallback } from "./kakao";
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
@@ -67,6 +70,9 @@ export default {
 			// /api/notifications/:id/read
 			if (segments[0] === "api" && segments[1] === "notifications" && segments[3] === "read" && request.method === "POST") {
 				return cors(await handleMarkNotificationRead(env, segments[2]));
+			}
+			if (url.pathname === "/oauth/kakao/callback") {
+				return await handleKakaoCallback(request, env);
 			}
 		} catch (err) {
 			return cors(json({ error: (err as Error).message }, 500));
