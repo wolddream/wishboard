@@ -38,9 +38,26 @@ CREATE TABLE IF NOT EXISTS wish_members (
   PRIMARY KEY (wish_id, user_id)
 );
 
+-- 위시 하나는 여러 개의 아이템으로 이루어진 "위시 리스트"다(예: 마라톤 대회 참가 위시 안에
+-- 런닝화, 유니폼 두 아이템). 목표금액/모금액/선물은 전부 아이템 단위로 매겨지고, 위시 카드에
+-- 보이는 전체 진행률은 이 아이템들의 합계를 그때그때 계산해서 보여준다.
+CREATE TABLE IF NOT EXISTS wish_items (
+  id TEXT PRIMARY KEY,
+  wish_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  link TEXT,
+  image_url TEXT,
+  goal_amount INTEGER NOT NULL,
+  current_amount INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_wish_items_wish ON wish_items(wish_id);
+
 CREATE TABLE IF NOT EXISTS contributions (
   id TEXT PRIMARY KEY,
   wish_id TEXT NOT NULL,
+  item_id TEXT,
   from_user_id TEXT,
   from_name TEXT NOT NULL,
   amount INTEGER NOT NULL,
@@ -49,6 +66,7 @@ CREATE TABLE IF NOT EXISTS contributions (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_contributions_wish ON contributions(wish_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_contributions_item ON contributions(item_id);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
