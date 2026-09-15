@@ -636,7 +636,7 @@
 
   // ---- 위시에 아이템 나중에 추가하기 (만든 사람만) ----
   window.startAddItem = function (wishId) {
-    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrl: '', goal: '' };
+    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrl: '', note: '', goal: '' };
     render();
   };
   window.cancelAddItem = function () { state.ui.addItemDraft = null; render(); };
@@ -647,12 +647,12 @@
     var name = (d.name || '').trim();
     if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
     if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
-    if (containsBannedWord(name)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    if (containsBannedWord(name) || containsBannedWord(d.note)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
     state.ui.savingAddItem = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
     })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('add item failed')); })
       .then(function () {
@@ -673,7 +673,7 @@
     var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
     var item = wish && (wish.items || []).filter(function (i) { return i.id === itemId; })[0];
     if (!item) return;
-    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrl: item.imageUrl, goal: item.goalAmount };
+    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrl: item.imageUrl, note: item.note, goal: item.goalAmount };
     render();
   };
   window.cancelEditItem = function () { state.ui.editItemDraft = null; render(); };
@@ -684,12 +684,12 @@
     var name = (d.name || '').trim();
     if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
     if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
-    if (containsBannedWord(name)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    if (containsBannedWord(name) || containsBannedWord(d.note)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
     state.ui.savingEditItem = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items/' + encodeURIComponent(d.itemId), {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
       .then(function (result) {
@@ -892,7 +892,7 @@
   // ---- Create wizard ----
   // 5단계 위저드: ① 개인/단체 선택 ② 테마(occasion) ③ 템플릿 ④ 상세정보 ⑤ 확인
   window.openCreateWizard = function () {
-    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrl: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [] };
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrl: '', note: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [] };
     render();
   };
   window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
@@ -917,7 +917,7 @@
     w.templateIdx = idx;
     w.title = tpl.title;
     w.subtitle = tpl.subtitle;
-    w.items = [{ name: tpl.title, link: '', imageUrl: '', goal: tpl.goal }];
+    w.items = [{ name: tpl.title, link: '', imageUrl: '', note: '', goal: tpl.goal }];
     w.days = tpl.days;
     w.story = '';
     w.step = 4;
@@ -928,14 +928,14 @@
     w.templateIdx = null;
     w.title = '';
     w.subtitle = '';
-    w.items = [{ name: '', link: '', imageUrl: '', goal: '' }];
+    w.items = [{ name: '', link: '', imageUrl: '', note: '', goal: '' }];
     w.step = 4;
     render();
   };
 
   // ---- 위저드: 위시 아이템 목록 (런닝화, 유니폼처럼 위시 하나를 이루는 개별 상품들) ----
   window.addWizardItem = function () {
-    state.ui.createWizard.items.push({ name: '', link: '', imageUrl: '', goal: '' });
+    state.ui.createWizard.items.push({ name: '', link: '', imageUrl: '', note: '', goal: '' });
     render();
   };
   window.removeWizardItem = function (idx) {
@@ -977,7 +977,7 @@
     }
     if (w.step === 4) {
       if (!w.title.trim()) { showToast('제목을 입력해주세요'); return; }
-      if ([w.title, w.subtitle, w.story].concat(w.items.map(function (i) { return i.name; })).some(containsBannedWord)) {
+      if ([w.title, w.subtitle, w.story].concat(w.items.map(function (i) { return i.name; })).concat(w.items.map(function (i) { return i.note; })).some(containsBannedWord)) {
         showToast('부적절한 단어는 사용할 수 없어요.'); return;
       }
       var validItems = w.items.filter(function (i) { return i.name.trim(); });
@@ -1005,7 +1005,7 @@
     render();
     var items = w.items.filter(function (i) { return i.name.trim(); }).map(function (i) {
       return {
-        name: i.name.trim(), link: (i.link || '').trim(), image_url: (i.imageUrl || '').trim(),
+        name: i.name.trim(), link: (i.link || '').trim(), image_url: (i.imageUrl || '').trim(), note: (i.note || '').trim(),
         // `|| 1000`은 0/NaN만 걸러내고 음수는 그대로 통과시켜(-5000은 truthy) 진행률 계산을
         // 깨뜨렸던 지점 - wizardNextStep에서 이미 막고 있지만 여기서도 Math.max로 한 번 더 보장한다.
         goal_amount: Math.max(1000, Number(i.goal) || 1000),
@@ -1437,6 +1437,7 @@
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(itemEd.link) + '" oninput="setEditItemField(\'link\', this)" />' +
             '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(itemEd.imageUrl) + '" oninput="setEditItemField(\'imageUrl\', this)" />' +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
+            '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setEditItemField(\'note\', this)">' + esc(itemEd.note) + '</textarea>' +
             '<div style="display:flex; gap:8px;">' +
               '<button class="btn-ghost" style="flex:1;" onclick="cancelEditItem()">취소</button>' +
               '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingEditItem ? 'disabled' : '') + ' onclick="saveEditItem()">' + (state.ui.savingEditItem ? '저장 중...' : '저장하기') + '</button>' +
@@ -1471,6 +1472,7 @@
             '<div style="flex:1; min-width:0;">' +
               '<div style="font-size:13.5px; font-weight:800;">' + esc(item.name) + '</div>' +
               linkHtml +
+              (item.note ? '<div style="font-size:11.5px; color:var(--text-sub); line-height:1.4; margin-top:2px; white-space:pre-wrap;">' + esc(item.note) + '</div>' : '') +
               '<div class="gauge-track" style="margin-top:6px;"><div class="gauge-fill" style="width:' + itemPct + '%;"></div></div>' +
               '<div class="stat-row" style="margin-top:2px;"><span class="pct">' + itemPct + '%</span><span class="amt">' + formatWon(item.currentAmount) + ' / ' + formatWon(item.goalAmount) + '</span></div>' +
             '</div>' +
@@ -1539,6 +1541,7 @@
         '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(d.link) + '" oninput="setAddItemField(\'link\', this)" />' +
         '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(d.imageUrl) + '" oninput="setAddItemField(\'imageUrl\', this)" />' +
         '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
+        '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setAddItemField(\'note\', this)">' + esc(d.note) + '</textarea>' +
         '<div style="display:flex; gap:8px;">' +
           '<button class="btn-ghost" style="flex:1;" onclick="cancelAddItem()">취소</button>' +
           '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingAddItem ? 'disabled' : '') + ' onclick="saveAddItem()">' + (state.ui.savingAddItem ? '추가 중...' : '추가하기') + '</button>' +
@@ -1635,6 +1638,7 @@
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(it.link) + '" oninput="wizardSetItemField(' + idx + ', \'link\', this)" />' +
             '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(it.imageUrl) + '" oninput="wizardSetItemField(' + idx + ', \'imageUrl\', this)" />' +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(it.goal) + '" oninput="wizardSetItemField(' + idx + ', \'goal\', this)" />' +
+            '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="wizardSetItemField(' + idx + ', \'note\', this)">' + esc(it.note) + '</textarea>' +
           '</div>';
       }).join('');
       body = '' +

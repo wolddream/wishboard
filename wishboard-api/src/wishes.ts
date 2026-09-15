@@ -27,6 +27,7 @@ interface ItemRow {
 	name: string;
 	link: string | null;
 	image_url: string | null;
+	note: string | null;
 	goal_amount: number;
 	current_amount: number;
 }
@@ -70,6 +71,7 @@ function wishRowToClient(row: WishRow, members: MemberRow[], contributions: Cont
 			name: i.name,
 			link: i.link || "",
 			imageUrl: i.image_url || "",
+			note: i.note || "",
 			goalAmount: i.goal_amount,
 			currentAmount: i.current_amount,
 		})),
@@ -104,7 +106,7 @@ export async function handleGetWishes(env: Env): Promise<Response> {
 		env.DB.prepare(`SELECT id, wish_id, item_id, from_user_id, from_name, amount, message, anonymous, created_at FROM contributions WHERE wish_id IN (${placeholders}) ORDER BY created_at DESC`)
 			.bind(...ids)
 			.all<ContributionRow>(),
-		env.DB.prepare(`SELECT id, wish_id, name, link, image_url, goal_amount, current_amount FROM wish_items WHERE wish_id IN (${placeholders}) ORDER BY sort_order, created_at`)
+		env.DB.prepare(`SELECT id, wish_id, name, link, image_url, note, goal_amount, current_amount FROM wish_items WHERE wish_id IN (${placeholders}) ORDER BY sort_order, created_at`)
 			.bind(...ids)
 			.all<ItemRow>(),
 	]);
@@ -143,7 +145,7 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 		emoji?: string;
 		category?: string;
 		deadline?: string;
-		items?: Array<{ name?: string; link?: string; image_url?: string; goal_amount?: number }>;
+		items?: Array<{ name?: string; link?: string; image_url?: string; note?: string; goal_amount?: number }>;
 	};
 	const items = (body.items || []).filter((i) => i && i.name && i.name.trim() && Number(i.goal_amount) >= 1000);
 	if (!body.owner_id || !body.title || !body.deadline || items.length === 0) {
@@ -182,12 +184,13 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 	];
 	items.forEach((item, idx) => {
 		statements.push(
-			env.DB.prepare(`INSERT INTO wish_items (id, wish_id, name, link, image_url, goal_amount, current_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`).bind(
+			env.DB.prepare(`INSERT INTO wish_items (id, wish_id, name, link, image_url, note, goal_amount, current_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`).bind(
 				uid("i"),
 				wishId,
 				(item.name || "").trim().slice(0, 80),
 				(item.link || "").trim().slice(0, 500),
 				(item.image_url || "").trim().slice(0, 500),
+				(item.note || "").trim().slice(0, 500),
 				itemGoals[idx],
 				idx
 			)
@@ -251,7 +254,7 @@ export async function handlePatchWish(request: Request, env: Env, wishId: string
 // 이미 등록된 위시에 아이템을 하나 더 추가한다(예: "마라톤 대회 참가"에 나중에 "양말" 추가) -
 // 기존 아이템/선물에는 손대지 않으므로 handlePatchWish와 달리 안전하게 언제든 가능하다.
 export async function handleAddWishItem(request: Request, env: Env, wishId: string): Promise<Response> {
-	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; goal_amount?: number };
+	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; note?: string; goal_amount?: number };
 	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "아이템 추가 권한이 없어요" }, 403);
@@ -262,8 +265,17 @@ export async function handleAddWishItem(request: Request, env: Env, wishId: stri
 	const { results: countRows } = await env.DB.prepare(`SELECT COUNT(*) as c FROM wish_items WHERE wish_id = ?`).bind(wishId).all<{ c: number }>();
 	const sortOrder = countRows[0]?.c ?? 0;
 	const itemId = uid("i");
-	await env.DB.prepare(`INSERT INTO wish_items (id, wish_id, name, link, image_url, goal_amount, current_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`)
-		.bind(itemId, wishId, body.name.trim().slice(0, 80), (body.link || "").trim().slice(0, 500), (body.image_url || "").trim().slice(0, 500), Math.max(1000, Math.round(Number(body.goal_amount))), sortOrder)
+	await env.DB.prepare(`INSERT INTO wish_items (id, wish_id, name, link, image_url, note, goal_amount, current_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`)
+		.bind(
+			itemId,
+			wishId,
+			body.name.trim().slice(0, 80),
+			(body.link || "").trim().slice(0, 500),
+			(body.image_url || "").trim().slice(0, 500),
+			(body.note || "").trim().slice(0, 500),
+			Math.max(1000, Math.round(Number(body.goal_amount))),
+			sortOrder
+		)
 		.run();
 
 	return json({ ok: true, id: itemId }, 201);
@@ -272,7 +284,7 @@ export async function handleAddWishItem(request: Request, env: Env, wishId: stri
 // 아이템 하나를 수정한다(이름/링크/이미지/가격) - owner만. 이미 모인 금액보다 가격을 낮출 수는
 // 없다(handlePatchWish의 목표금액 보호와 같은 이유).
 export async function handlePatchWishItem(request: Request, env: Env, wishId: string, itemId: string): Promise<Response> {
-	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; goal_amount?: number };
+	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; note?: string; goal_amount?: number };
 	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "수정 권한이 없어요" }, 403);
@@ -281,8 +293,8 @@ export async function handlePatchWishItem(request: Request, env: Env, wishId: st
 	if (!body.name || !body.name.trim()) return json({ error: "아이템 이름이 필요해요" }, 400);
 
 	const goalAmount = Math.max(item.current_amount, Math.round(Number(body.goal_amount) || item.current_amount || 1000));
-	await env.DB.prepare(`UPDATE wish_items SET name = ?, link = ?, image_url = ?, goal_amount = ? WHERE id = ?`)
-		.bind(body.name.trim().slice(0, 80), (body.link || "").trim().slice(0, 500), (body.image_url || "").trim().slice(0, 500), goalAmount, itemId)
+	await env.DB.prepare(`UPDATE wish_items SET name = ?, link = ?, image_url = ?, note = ?, goal_amount = ? WHERE id = ?`)
+		.bind(body.name.trim().slice(0, 80), (body.link || "").trim().slice(0, 500), (body.image_url || "").trim().slice(0, 500), (body.note || "").trim().slice(0, 500), goalAmount, itemId)
 		.run();
 
 	return json({ ok: true });

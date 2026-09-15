@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS wish_items (
   name TEXT NOT NULL,
   link TEXT,
   image_url TEXT,
+  note TEXT, -- 이 아이템을 왜 원하는지/선정 배경 (선택)
   goal_amount INTEGER NOT NULL,
   current_amount INTEGER NOT NULL DEFAULT 0,
   sort_order INTEGER DEFAULT 0,
