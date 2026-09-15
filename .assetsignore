@@ -1,0 +1,7 @@
+.git
+.gitignore
+wishboard-api
+schema.sql
+wrangler.jsonc
+.assetsignore
+README.md
