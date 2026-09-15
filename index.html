@@ -229,6 +229,11 @@
   'use strict';
 
   var STORAGE_KEY = 'wishboard_v1';
+  // 로컬 개발 서버(localhost)에서 테스트할 땐 로컬 목업 API를, 실제 배포본에서는 진짜
+  // Cloudflare Worker를 바라보게 한다 - 코드는 하나인데 환경에 따라 자동으로 갈린다.
+  var API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://localhost:8792'
+    : 'https://wishboard-api.wolddream.workers.dev';
 
   var OCCASIONS = [
     { type: 'birthday', label: '생일 축하', emoji: '🎂', color: '#FF9F6B' },
@@ -371,69 +376,16 @@
     return '<div class="avatar" style="width:' + s + 'px; height:' + s + 'px; font-size:' + fontSize + 'px;">' + wish.ownerAvatar + '</div>';
   }
 
-  function seedState() {
-    var meId = 'me';
-    var friends = [
-      { id: 'f1', name: '민호', avatar: '🧑‍💻', interests: ['IT', '커피', '러닝'] },
-      { id: 'f2', name: '서연', avatar: '🎨', interests: ['여행', '사진', '인테리어'] },
-      { id: 'f3', name: '도윤', avatar: '🏋️', interests: ['스포츠', '마라톤', '캠핑'] },
-      { id: 'f4', name: '유진', avatar: '📚', interests: ['독서', '홈카페', 'IT'] },
-    ];
-    var wishes = [
-      {
-        id: uid('w'), ownerId: 'f2', ownerName: '서연', ownerAvatar: '🎨', title: '제주도 한 달 살기 & 원격 작업',
-        subtitle: '바다 보이는 오피스텔에서 30일간 글 쓰고 일하기', story: '오래 꿈꿔온 제주 한 달 살기, 조금씩 보태주시면 힘이 나요!',
-        emoji: '🏝️', category: 'challenge', goalAmount: 1200000, currentAmount: 840000,
-        deadline: addDays(28), createdAt: Date.now() - 86400000 * 5,
-        contributions: [
-          { id: uid('c'), fromName: '민호', amount: 50000, message: '제주 잘 다녀와!', anonymous: false, at: Date.now() - 86400000 * 2 },
-          { id: uid('c'), fromName: '익명', amount: 30000, message: '응원할게요', anonymous: true, at: Date.now() - 86400000 },
-        ],
-      },
-      {
-        id: uid('w'), ownerId: 'f1', ownerName: '민호', ownerAvatar: '🧑‍💻', title: '소니 미러리스 카메라 업그레이드',
-        subtitle: '사진 취미를 위한 첫 풀프레임', story: '사진 찍는 게 요즘 제일 즐거운 취미예요. 조금만 보태주세요!',
-        emoji: '📷', category: 'challenge', goalAmount: 2000000, currentAmount: 1200000,
-        deadline: addDays(45), createdAt: Date.now() - 86400000 * 10,
-        contributions: [{ id: uid('c'), fromName: '유진', amount: 40000, message: '좋은 사진 기대할게!', anonymous: false, at: Date.now() - 86400000 * 3 }],
-      },
-      {
-        id: uid('w'), ownerId: 'f3', ownerName: '도윤', ownerAvatar: '🏋️', title: '2026 도쿄 마라톤 완주 프로젝트',
-        subtitle: '풀코스 첫 완주 도전', story: '풀코스는 처음이라 장비 좀 제대로 갖추고 싶어요!',
-        emoji: '🏃', category: 'challenge', goalAmount: 500000, currentAmount: 400000,
-        deadline: addDays(8), createdAt: Date.now() - 86400000 * 15,
-        contributions: [],
-      },
-      {
-        id: uid('w'), ownerId: 'f4', ownerName: '유진', ownerAvatar: '📚', title: '생일 - 힐링 호캉스 스테이',
-        subtitle: '생일엔 나에게 휴식을 선물', story: '', emoji: '🎂', category: 'birthday',
-        goalAmount: 300000, currentAmount: 90000, deadline: addDays(15), createdAt: Date.now() - 86400000 * 2,
-        contributions: [],
-      },
-      {
-        id: uid('w'), ownerId: 'f1', ownerName: '민호', ownerAvatar: '🧑‍💻',
-        type: 'group', groupName: '개발자 모임', members: [
-          { id: 'f1', name: '민호', avatar: '🧑‍💻' }, { id: 'f4', name: '유진', avatar: '📚' },
-        ],
-        title: '연말 팀 워크샵 펀딩', subtitle: '개발자 모임 다 같이 워크샵 다녀오기', story: '연말에 다 같이 워크샵 가서 회고도 하고 맛있는 것도 먹으려고요!',
-        emoji: '🎉', category: 'holiday', goalAmount: 600000, currentAmount: 180000,
-        deadline: addDays(20), createdAt: Date.now() - 86400000 * 3,
-        contributions: [],
-      },
-    ];
+  // 진짜 사용자 신원 없이 - 매 기기(브라우저)마다 랜덤 id를 하나 만들어 localStorage에 고정해두는
+  // "익명" 신원이다(keongyu의 익명 로그인 단계와 같은 최소 단위). 이름/아바타는 마이페이지에서
+  // 직접 정할 수 있고, 그래야 다른 사람이 내가 누군지 구분할 수 있다.
+  function defaultState() {
     return {
-      user: { id: meId, name: '나', avatar: '😊' },
-      friends: friends,
-      wishes: wishes,
-      // wishId를 실제 위시 id로 채워둬서 알림을 누르면 그 위시 상세로 바로 이동한다.
-      notifications: [
-        { id: uid('n'), type: 'gift_arrived', wishId: wishes[1].id, text: '민호님이 "소니 미러리스 카메라 업그레이드"에 40,000원을 보탰어요', at: Date.now() - 86400000, read: false },
-        { id: uid('n'), type: 'dday_soon', wishId: wishes[2].id, text: '도윤님의 "도쿄 마라톤" 위시가 D-8이에요, 지금 보태보세요!', at: Date.now() - 3600000 * 5, read: false },
-        { id: uid('n'), type: 'cheer_comment', wishId: wishes[0].id, text: '서연님의 위시에 응원 댓글이 달렸어요', at: Date.now() - 3600000 * 20, read: true },
-      ],
-      myGifts: [],
+      user: { id: uid('u'), name: '나', avatar: '😊' },
+      wishes: [],
+      notifications: [],
       customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
-      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0 },
+      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true },
     };
   }
 
@@ -442,33 +394,64 @@
       var raw = localStorage.getItem(STORAGE_KEY);
       if (raw) return JSON.parse(raw);
     } catch (e) {}
-    return seedState();
+    return defaultState();
   }
   function saveState() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
   }
 
   var state = loadState();
+  state.ui.loading = true; // 서버에서 위시 목록을 처음 받아올 때까지는 "위시가 없어요"가 아니라 로딩 표시
 
-  // "마감 임박" 알림이 시드 데이터로만 하나 있었을 뿐, 실제로 위시가 마감에 가까워져도 아무 알림이
-  // 새로 생기지 않았다 - 앱을 열 때마다 임박한(D-3 이내, 아직 미달성, 내 위시 아님) 위시를 훑어서
-  // 이미 알림을 보낸 적 없으면 하나 만든다. 매번 render()를 부르진 않고(로드 시점에 한 번만) 상태만
-  // 채워두면 이후 첫 render()에서 자연히 반영된다.
-  (function generateDdaySoonNotifications() {
-    state.wishes.forEach(function (w) {
-      if (isWishMine(w) || w.currentAmount >= w.goalAmount) return;
-      var d = daysUntil(w.deadline);
-      if (d < 0 || d > 3) return;
-      var already = state.notifications.some(function (n) { return n.type === 'dday_soon' && n.wishId === w.id; });
-      if (already) return;
-      var who = w.type === 'group' ? (w.groupName || '단체') : w.ownerName;
-      state.notifications.unshift({
-        id: uid('n'), type: 'dday_soon', wishId: w.id,
-        text: who + '님의 "' + w.title + '" 위시가 D-' + d + '이에요, 지금 보태보세요!',
-        at: Date.now(), read: false,
+  // 위시보드의 실제 취지("친구랑 같이 쓰는") - 여러 사람이 진짜 같은 데이터를 봐야 하므로,
+  // localStorage는 이제 "내 신원/화면 설정"만 보관하는 캐시고, 위시/알림은 항상 서버(worker-api,
+  // D1)가 정답이다. keongyu가 겪은 "fire-and-forget로 쐈다가 실패해도 모름" 실수를 반복하지
+  // 않도록, 여기서는 await로 서버 응답을 확인한 뒤에만 로컬 상태를 반영한다.
+  function syncWishesFromServer() {
+    return fetch(API_BASE + '/api/wishes')
+      .then(function (res) { return res.ok ? res.json() : { wishes: [] }; })
+      .then(function (data) {
+        state.wishes = data.wishes || [];
+        state.ui.loading = false;
+        saveState();
+        render();
+      })
+      .catch(function (err) {
+        console.warn('[wishes sync failed]', err);
+        state.ui.loading = false;
+        render();
       });
-    });
-  })();
+  }
+
+  function syncNotificationsFromServer() {
+    return fetch(API_BASE + '/api/notifications?user_id=' + encodeURIComponent(state.user.id))
+      .then(function (res) { return res.ok ? res.json() : { notifications: [] }; })
+      .then(function (data) {
+        state.notifications = data.notifications || [];
+        saveState();
+        render();
+      })
+      .catch(function (err) { console.warn('[notifications sync failed]', err); });
+  }
+
+  // ?join=위시id 링크로 들어온 경우, 그 단체 위시에 자동으로 합류한다 (keongyu의 "함께가기
+  // 참여 링크"와 같은 패턴 - 친구 목록이 따로 없는 대신 링크로 서로를 초대한다).
+  function joinWishFromUrl() {
+    var joinId = new URLSearchParams(location.search).get('join');
+    if (!joinId) return;
+    history.replaceState(null, '', location.pathname); // 새로고침 시 중복 합류 방지
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(joinId) + '/join', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user_id: state.user.id, user_name: state.user.name, user_avatar: state.user.avatar }),
+    })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('join failed')); })
+      .then(function () {
+        showToast('그룹에 참여했어요! 👥');
+        return syncWishesFromServer();
+      })
+      .then(function () { openWishDetail(joinId); })
+      .catch(function () { showToast('초대 링크가 유효하지 않아요.'); });
+  }
 
   function applyTheme() {
     var theme = THEME_COLORS.filter(function (t) { return t.id === state.customization.themeColor; })[0] || THEME_COLORS[0];
@@ -536,10 +519,27 @@
 
   window.deleteWish = function (id) {
     if (!confirm('이 위시를 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
-    state.wishes = state.wishes.filter(function (w) { return w.id !== id; });
     closeWishDetail();
-    saveState();
-    showToast('위시가 삭제됐어요.');
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(id) + '?user_id=' + encodeURIComponent(state.user.id), { method: 'DELETE' })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('delete failed')); })
+      .then(function () {
+        showToast('위시가 삭제됐어요.');
+        syncWishesFromServer();
+      })
+      .catch(function () { showToast('삭제에 실패했어요. 다시 시도해주세요.'); });
+  };
+
+  // 단체 위시 초대 링크 복사 - 친구 목록이 없어서 위시 만들 때 미리 멤버를 고를 수 없는 대신,
+  // 만든 뒤 이 링크를 공유하면 받은 사람이 스스로 합류한다.
+  window.copyInviteLink = function (wishId) {
+    var link = location.origin + location.pathname + '?join=' + encodeURIComponent(wishId);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link)
+        .then(function () { showToast('초대 링크가 복사됐어요! 친구에게 보내보세요 💌'); })
+        .catch(function () { showToast(link); });
+    } else {
+      showToast(link);
+    }
   };
 
   window.pickGiftAmount = function (amount) {
@@ -558,33 +558,43 @@
 
   window.sendGift = function () {
     var wish = state.wishes.filter(function (w) { return w.id === state.ui.wishDetailId; })[0];
-    if (!wish) return;
+    if (!wish || state.ui.sendingGift) return;
     var draft = state.ui.giftDraft;
     var amount = draft.customAmount ? Number(draft.customAmount) : draft.amount;
     if (!amount || amount < 100) { showToast('보탤 금액을 선택하거나 입력해주세요'); return; }
     if (containsBannedWord(draft.message)) { showToast('응원 메시지에 부적절한 단어는 사용할 수 없어요.'); return; }
-    // 목표금액을 넘는 만큼은 반영하지 않는다 - 안 그러면 진행률 100%는 넘지 않게 캡핑해두고서
-    // (currentAmount에는 Math.min을 걸어두고) 정작 응원 방명록/내 선물내역/알림에는 사용자가
-    // 입력한 원래 금액이 그대로 찍혀, 실제 반영된 금액과 기록이 서로 어긋나는 문제가 있었다.
-    var remaining = wish.goalAmount - wish.currentAmount;
-    var applied = Math.min(amount, remaining);
-    var contribution = {
-      id: uid('c'), fromName: draft.anonymous ? '익명' : state.user.name, amount: applied,
-      message: draft.message.trim(), anonymous: draft.anonymous, at: Date.now(),
-    };
-    wish.contributions.unshift(contribution);
-    wish.currentAmount += applied;
-    state.myGifts.unshift({ id: uid('g'), toWishId: wish.id, toName: wish.ownerName, wishTitle: wish.title, category: wish.category, amount: applied, at: Date.now() });
-    state.notifications.unshift({ id: uid('n'), type: 'gift_arrived', wishId: wish.id, text: (draft.anonymous ? '익명의 친구' : state.user.name) + '님이 "' + wish.title + '"에 ' + formatWon(applied) + '을 보탰어요', at: Date.now(), read: true });
-    closeWishDetail();
-    saveState();
-    showToast(applied < amount ? ('🎉 목표금액까지만 반영돼서 ' + formatWon(applied) + ' 보탰어요!') : ('🎉 카카오페이로 ' + formatWon(applied) + ' 보탰어요!'));
+    // 목표금액 초과분 캡핑은 서버(handlePostGift)가 최종 진실이다 - 여러 사람이 거의 동시에
+    // 보태도 서버가 하나씩 순서대로 처리하니 진행률이 100%를 넘지 않는다. 클라이언트는 그 결과를
+    // 그대로 반영만 한다.
+    state.ui.sendingGift = true;
+    render();
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wish.id) + '/gift', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        from_user_id: state.user.id, from_name: state.user.name, from_avatar: state.user.avatar,
+        amount: amount, message: draft.message.trim(), anonymous: draft.anonymous,
+      }),
+    })
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (result) {
+        state.ui.sendingGift = false;
+        if (!result.ok) { showToast(result.data.error || '보태기에 실패했어요.'); render(); return; }
+        var applied = result.data.applied;
+        closeWishDetail();
+        showToast(applied < amount ? ('🎉 목표금액까지만 반영돼서 ' + formatWon(applied) + ' 보탰어요!') : ('🎉 카카오페이로 ' + formatWon(applied) + ' 보탰어요!'));
+        syncWishesFromServer();
+      })
+      .catch(function () {
+        state.ui.sendingGift = false;
+        showToast('네트워크 오류로 실패했어요. 다시 시도해주세요.');
+        render();
+      });
   };
 
   // ---- Create wizard ----
   // 5단계 위저드: ① 개인/단체 선택 ② 테마(occasion) ③ 템플릿 ④ 상세정보 ⑤ 확인
   window.openCreateWizard = function () {
-    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', memberIds: [], occasion: null, templateIdx: null, title: '', subtitle: '', story: '', goal: 300000, days: 14, emoji: '🎁', suggestedItems: [] };
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', goal: 300000, days: 14, emoji: '🎁', suggestedItems: [] };
     render();
   };
   window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
@@ -592,12 +602,6 @@
   window.setWizardType = function (type) {
     var w = state.ui.createWizard;
     w.wishType = type;
-    render();
-  };
-  window.toggleWizardMember = function (friendId) {
-    var w = state.ui.createWizard;
-    var idx = w.memberIds.indexOf(friendId);
-    if (idx >= 0) w.memberIds.splice(idx, 1); else w.memberIds.push(friendId);
     render();
   };
 
@@ -654,7 +658,7 @@
   window.wizardNextStep = function () {
     var w = state.ui.createWizard;
     if (w.step === 1 && w.wishType === 'group') {
-      if (!w.groupName.trim() || w.memberIds.length === 0) { showToast('그룹 이름과 함께할 친구를 선택해주세요'); return; }
+      if (!w.groupName.trim()) { showToast('그룹 이름을 입력해주세요'); return; }
       if (containsBannedWord(w.groupName)) { showToast('그룹 이름에 부적절한 단어가 포함되어 있어요.'); return; }
     }
     if (w.step === 4) {
@@ -677,27 +681,34 @@
 
   window.finishWizard = function () {
     var w = state.ui.createWizard;
+    if (state.ui.creatingWish) return;
     var isGroup = w.wishType === 'group';
-    var members = isGroup
-      ? [{ id: state.user.id, name: state.user.name, avatar: state.user.avatar }].concat(
-          w.memberIds.map(function (id) { return state.friends.filter(function (f) { return f.id === id; })[0]; })
-            .filter(Boolean)
-            .map(function (f) { return { id: f.id, name: f.name, avatar: f.avatar }; })
-        )
-      : [];
-    var wish = {
-      id: uid('w'), ownerId: state.user.id, ownerName: state.user.name, ownerAvatar: state.user.avatar,
-      type: isGroup ? 'group' : 'personal', groupName: isGroup ? w.groupName.trim() : '', members: members,
-      title: w.title.trim(), subtitle: w.subtitle.trim(), story: w.story.trim(), emoji: w.emoji, category: w.occasion,
-      // `|| 100000`은 0/NaN만 걸러내고 음수는 그대로 통과시켜(-5000은 truthy) 진행률 계산을
-      // 깨뜨렸던 지점 - wizardNextStep에서 이미 막고 있지만 여기서도 Math.max로 한 번 더 보장한다.
-      goalAmount: Math.max(1000, Number(w.goal) || 100000), currentAmount: 0, deadline: addDays(Math.max(1, Number(w.days) || 14)),
-      createdAt: Date.now(), contributions: [],
-    };
-    state.wishes.unshift(wish);
-    state.ui.createWizard = null;
-    saveState();
-    showToast(isGroup ? '✨ 단체 위시가 등록됐어요!' : '✨ 위시가 등록됐어요!');
+    state.ui.creatingWish = true;
+    render();
+    fetch(API_BASE + '/api/wishes', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        owner_id: state.user.id, owner_name: state.user.name, owner_avatar: state.user.avatar,
+        type: isGroup ? 'group' : 'personal', group_name: isGroup ? w.groupName.trim() : '',
+        title: w.title.trim(), subtitle: w.subtitle.trim(), story: w.story.trim(), emoji: w.emoji, category: w.occasion,
+        // `|| 100000`은 0/NaN만 걸러내고 음수는 그대로 통과시켜(-5000은 truthy) 진행률 계산을
+        // 깨뜨렸던 지점 - wizardNextStep에서 이미 막고 있지만 여기서도 Math.max로 한 번 더 보장한다.
+        goal_amount: Math.max(1000, Number(w.goal) || 100000), deadline: addDays(Math.max(1, Number(w.days) || 14)),
+      }),
+    })
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (result) {
+        state.ui.creatingWish = false;
+        if (!result.ok) { showToast(result.data.error || '위시 등록에 실패했어요.'); render(); return; }
+        state.ui.createWizard = null;
+        showToast(isGroup ? '✨ 단체 위시가 등록됐어요! 친구 초대 링크로 함께할 사람을 불러보세요' : '✨ 위시가 등록됐어요!');
+        syncWishesFromServer();
+      })
+      .catch(function () {
+        state.ui.creatingWish = false;
+        showToast('네트워크 오류로 실패했어요. 다시 시도해주세요.');
+        render();
+      });
   };
 
   // ---- Customization ----
@@ -707,6 +718,23 @@
   window.setProfileLayout = function (id) { state.customization.profileLayout = id; render(); };
   window.setCardStyle = function (id) { state.customization.cardStyle = id; render(); };
   window.toggleWidget = function (key) { state.customization.widgets[key] = !state.customization.widgets[key]; render(); };
+
+  // ---- 프로필(이름) 수정 ----
+  window.startEditProfile = function () { state.ui.editingProfile = true; render(); };
+  window.saveProfileName = function () {
+    var el = document.getElementById('profile-name-input');
+    var name = (el ? el.value : '').trim();
+    if (!name) { showToast('이름을 입력해주세요'); return; }
+    if (containsBannedWord(name)) { showToast('이름에 부적절한 단어는 사용할 수 없어요.'); return; }
+    state.user.name = name;
+    state.ui.editingProfile = false;
+    saveState();
+    render();
+    fetch(API_BASE + '/api/users/' + encodeURIComponent(state.user.id), {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: name, avatar: state.user.avatar }),
+    }).catch(function (err) { console.warn('[profile sync failed]', err); });
+  };
 
   // 읽음 처리만 하고 끝나서, "OO님이 OO에 5,000원 보탰어요" 알림을 눌러도 정작 그 위시로
   // 갈 방법이 없었다 - wishId가 있으면 상세 화면까지 열어준다.
@@ -731,38 +759,47 @@
   }
 
   // ============ AI 선물 추천 엔진 (규칙 기반 5차원 스코어링) ============
+  // 실제 사용자에게는 "친구 관심사" 같은 데이터가 없어서(친구 그래프 자체가 없음), 예전 버전의
+  // 5차원 중 "취향 일치도" 차원은 뺐다 - 있지도 않은 데이터로 가짜 매칭을 하는 것보다, 실제로
+  // 있는 신호(진행도/과거 선물/타이밍) 3가지로 정직하게 계산하는 쪽을 택했다.
+  function computeMyGiftStats() {
+    var gifts = [];
+    state.wishes.forEach(function (w) {
+      (w.contributions || []).forEach(function (c) {
+        if (c.fromUserId === state.user.id) {
+          gifts.push({ wishId: w.id, wishTitle: w.title, toName: w.ownerName, category: w.category, amount: c.amount, at: c.at });
+        }
+      });
+    });
+    gifts.sort(function (a, b) { return new Date(b.at) - new Date(a.at); });
+    return gifts;
+  }
+
   function computeRecommendations(budgetTier) {
     var tier = BUDGET_TIERS.filter(function (t) { return t.id === budgetTier; })[0] || BUDGET_TIERS[0];
     var candidates = state.wishes.filter(function (w) { return !isWishMine(w) && w.currentAmount < w.goalAmount; });
+    var myGifts = computeMyGiftStats();
     var results = candidates.map(function (wish) {
-      var friend = state.friends.filter(function (f) { return f.id === wish.ownerId; })[0] || { interests: [] };
       var remain = wish.goalAmount - wish.currentAmount;
       var dday = daysUntil(wish.deadline);
 
-      // 과거 이 친구에게 보낸 선물 이력(카테고리 매칭) 점수
-      var pastMatch = state.myGifts.filter(function (g) { return g.toName === wish.ownerName; });
+      // 과거 이 사람에게 보낸 선물 이력(카테고리 매칭) 점수
+      var pastMatch = myGifts.filter(function (g) { return g.toName === wish.ownerName; });
       var categoryMatchPast = pastMatch.some(function (g) { return g.category === wish.category; });
-
-      var interestMatch = (friend.interests || []).some(function (tag) {
-        return wish.title.indexOf(tag) >= 0 || wish.subtitle.indexOf(tag) >= 0 || wish.category === 'challenge' && tag === '러닝';
-      });
 
       var score = 0;
       var reasons = [];
       // 1. 위시 연계 (남은 목표금액 대비 진행도)
       var progressPct = Math.round((wish.currentAmount / wish.goalAmount) * 100);
-      if (progressPct >= 50 && progressPct < 100) { score += 28; reasons.push('목표 ' + progressPct + '% 달성 · 조금만 더 보태면 완주'); }
-      else { score += 14; reasons.push('현재 ' + progressPct + '% 달성 중'); }
+      if (progressPct >= 50 && progressPct < 100) { score += 34; reasons.push('목표 ' + progressPct + '% 달성 · 조금만 더 보태면 완주'); }
+      else { score += 18; reasons.push('현재 ' + progressPct + '% 달성 중'); }
       // 2. 과거 선물 이력
-      if (categoryMatchPast) { score += 22; reasons.push('평소 이 카테고리 선물을 자주 보내셨어요'); }
-      else if (pastMatch.length > 0) { score += 12; reasons.push(wish.ownerName + '님께 이전에도 선물한 적 있어요'); }
-      // 3. 취향 일치도
-      if (interestMatch) { score += 24; reasons.push(wish.ownerName + '님의 관심사(' + (friend.interests || []).join('/') + ')와 일치'); }
-      else { score += 8; }
-      // 4. 타이밍(디데이)
-      if (dday <= 10) { score += 26; reasons.push('D-' + dday + ', 골든타임이에요'); }
-      else if (dday <= 25) { score += 14; reasons.push('D-' + dday + ', 여유 있게 준비 가능'); }
-      else { score += 6; reasons.push('D-' + dday); }
+      if (categoryMatchPast) { score += 30; reasons.push('평소 이 카테고리 선물을 자주 보내셨어요'); }
+      else if (pastMatch.length > 0) { score += 16; reasons.push(wish.ownerName + '님께 이전에도 선물한 적 있어요'); }
+      // 3. 타이밍(디데이)
+      if (dday <= 10) { score += 35; reasons.push('D-' + dday + ', 골든타임이에요'); }
+      else if (dday <= 25) { score += 18; reasons.push('D-' + dday + ', 여유 있게 준비 가능'); }
+      else { score += 8; reasons.push('D-' + dday); }
 
       // tier.max === Infinity는 '전체'(min 0)와 '프리미엄'(min 60000) 둘 다 해당되는데, 예전에는
       // 이 조건이면 무조건 30000원으로 제안해서 - 프리미엄 탭을 골라도 제안액이 항상 30000원에
@@ -772,7 +809,7 @@
         ? Math.min(remain, Math.max(tier.min, 30000))
         : Math.min(remain, Math.round((tier.min + Math.min(tier.max, remain)) / 2) || 10000);
       return {
-        wish: wish, friend: friend, score: Math.min(99, score), reasons: reasons.slice(0, 4),
+        wish: wish, score: Math.min(99, score), reasons: reasons.slice(0, 4),
         suggestedAmount: Math.max(1000, Math.round(suggestedAmount / 1000) * 1000),
       };
     });
@@ -875,9 +912,9 @@
     var chips = CATEGORY_FILTERS.map(function (c) {
       return '<button class="chip' + (state.ui.categoryFilter === c.type ? ' active' : '') + '" onclick="setCategoryFilter(\'' + c.type + '\')">' + esc(c.label) + '</button>';
     }).join('');
-    var cards = filtered.length
-      ? filtered.map(wishCardHtml).join('')
-      : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요</div>';
+    var cards = state.ui.loading
+      ? '<div class="empty-state">⏳<br/>위시 불러오는 중...</div>'
+      : (filtered.length ? filtered.map(wishCardHtml).join('') : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요<br/>+ 버튼으로 첫 위시를 만들어보세요!</div>');
     return cheerTickerHtml() + '<div class="scroll-x">' + chips + '</div>' + cards;
   }
 
@@ -925,25 +962,33 @@
   }
 
   function renderMyPage() {
-    var totalAmount = state.myGifts.reduce(function (s, g) { return s + g.amount; }, 0);
+    var myGifts = computeMyGiftStats();
+    var totalAmount = myGifts.reduce(function (s, g) { return s + g.amount; }, 0);
     var myWishes = state.wishes.filter(isWishMine);
     var layout = state.customization.profileLayout;
+    // 익명 신원이라 "나"라는 이름 그대로면 다른 사람이 나를 못 알아본다 - 이름을 직접 정할 수
+    // 있게 한다 (여기서 정한 이름이 내가 만드는 위시/보내는 선물에 그대로 붙어 나간다).
+    var nameBlock = state.ui.editingProfile
+      ? '<input id="profile-name-input" type="text" value="' + esc(state.user.name) + '" maxlength="16" style="font-size:16px; font-weight:900; width:140px;" />' +
+        '<button class="icon-btn" style="width:26px; height:26px; font-size:12px;" onclick="saveProfileName()">✓</button>'
+      : '<div style="font-size:16px; font-weight:900;">' + esc(state.user.name) + '</div>' +
+        '<button class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="startEditProfile()">✏️</button>';
     var head = layout === 'avatar'
-      ? '<div style="text-align:center; padding:24px 16px 8px;"><div style="font-size:52px;">' + state.user.avatar + '</div><div style="font-size:16px; font-weight:900; margin-top:6px;">' + esc(state.user.name) + '</div></div>'
-      : '<div style="display:flex; align-items:center; gap:12px; padding:20px 16px 8px;"><div class="avatar" style="width:52px; height:52px; font-size:26px;">' + state.user.avatar + '</div><div style="font-size:16px; font-weight:900;">' + esc(state.user.name) + '</div></div>';
+      ? '<div style="text-align:center; padding:24px 16px 8px;"><div style="font-size:52px;">' + state.user.avatar + '</div><div style="display:flex; align-items:center; justify-content:center; gap:6px; margin-top:6px;">' + nameBlock + '</div></div>'
+      : '<div style="display:flex; align-items:center; gap:12px; padding:20px 16px 8px;"><div class="avatar" style="width:52px; height:52px; font-size:26px;">' + state.user.avatar + '</div><div style="display:flex; align-items:center; gap:6px;">' + nameBlock + '</div></div>';
     var statCards = '' +
       '<div style="display:flex; gap:10px; padding:0 16px 16px;">' +
-        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 선물</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + state.myGifts.length + '건</div></div>' +
+        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 선물</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + myGifts.length + '건</div></div>' +
         '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 금액</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + formatWon(totalAmount) + '</div></div>' +
       '</div>';
     var myWishSection = '<div style="padding:0 16px 6px; font-size:13px; font-weight:900;">내 위시 (' + myWishes.length + ')</div>' +
       (myWishes.length ? myWishes.map(wishCardHtml).join('') : '<div class="empty-state">아직 만든 위시가 없어요<br/>홈에서 + 버튼을 눌러보세요</div>');
-    var historyRows = state.myGifts.length
-      ? state.myGifts.slice(0, 20).map(function (g) {
+    var historyRows = myGifts.length
+      ? myGifts.slice(0, 20).map(function (g) {
           return '<div class="cheer-item" style="padding:9px 16px;"><span class="who">' + esc(g.toName) + '님께</span><span class="msg">' + esc(g.wishTitle) + '</span><span class="amt">' + formatWon(g.amount) + '</span></div>';
         }).join('')
       : '';
-    var historySection = state.myGifts.length ? '<div style="padding:14px 0 4px 16px; font-size:13px; font-weight:900;">보낸 선물 히스토리</div>' + historyRows : '';
+    var historySection = myGifts.length ? '<div style="padding:14px 0 4px 16px; font-size:13px; font-weight:900;">보낸 선물 히스토리</div>' + historyRows : '';
     return head + statCards + myWishSection + historySection;
   }
 
@@ -977,15 +1022,18 @@
 
     // isMine일 땐 내 위시라 남에게 선물 못 하니 빈 문자열이었는데, 그러면 정작 만든 위시를
     // 지울 방법이 하나도 없었다(데모 중에 테스트로 만든 위시가 계속 쌓이기만 함) - 삭제 버튼을 둔다.
+    // 단체 위시면 친구 목록이 없는 대신 초대 링크로 서로를 불러야 하니 그 버튼도 같이 둔다.
     var giftForm = isMine
-      ? '<button class="btn-ghost" style="color:var(--danger); margin-top:4px;" onclick="deleteWish(\'' + wish.id + '\')">🗑️ 이 위시 삭제하기</button>'
+      ? '' +
+        (wish.type === 'group' ? '<button class="btn-primary" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">👥 친구 초대 링크 복사</button>' : '') +
+        '<button class="btn-ghost" style="color:var(--danger); margin-top:4px;" onclick="deleteWish(\'' + wish.id + '\')">🗑️ 이 위시 삭제하기</button>'
       : '' +
       '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">얼마나 보탤까요?</div>' +
       '<div class="amount-grid">' + amountChips + '</div>' +
       '<input type="text" inputmode="numeric" placeholder="직접 입력 (원)" value="' + esc(draft.customAmount) + '" oninput="setCustomGiftAmount(this)" />' +
       '<textarea rows="2" placeholder="응원 한마디를 남겨보세요" oninput="setGiftMessage(this)">' + esc(draft.message) + '</textarea>' +
       '<div class="option-item' + (draft.anonymous ? ' active' : '') + '" onclick="toggleGiftAnonymous()"><span>🙈 익명으로 보내기</span><button class="toggle' + (draft.anonymous ? ' on' : '') + '"></button></div>' +
-      '<button class="btn-primary" onclick="sendGift()">💛 카카오페이로 보태기</button>';
+      '<button class="btn-primary" ' + (state.ui.sendingGift ? 'disabled' : '') + ' onclick="sendGift()">' + (state.ui.sendingGift ? '⏳ 보내는 중...' : '💛 카카오페이로 보태기') + '</button>';
 
     return '' +
       '<div class="sheet-backdrop" onclick="closeWishDetail()">' +
@@ -1015,13 +1063,7 @@
         '</div>' +
         (w.wishType === 'group' ? '' +
           '<input type="text" placeholder="그룹 이름 (예: 우리 가족, 축구팀)" value="' + esc(w.groupName) + '" oninput="wizardSetField(\'groupName\', this)" />' +
-          '<div style="font-size:11.5px; font-weight:800; color:var(--text-sub);">함께할 친구 선택</div>' +
-          '<div style="display:flex; flex-direction:column; gap:6px;">' +
-            state.friends.map(function (f) {
-              var checked = w.memberIds.indexOf(f.id) >= 0;
-              return '<div class="option-item' + (checked ? ' active' : '') + '" onclick="toggleWizardMember(\'' + f.id + '\')"><span>' + f.avatar + ' ' + esc(f.name) + '</span>' + (checked ? '✓' : '') + '</div>';
-            }).join('') +
-          '</div>'
+          '<div style="font-size:11px; color:var(--text-sub); line-height:1.5;">등록하면 초대 링크가 생겨요 - 그 링크를 친구에게 보내면 친구가 스스로 합류할 수 있어요.</div>'
         : '');
     } else if (w.step === 2) {
       body = '<div class="occasion-grid">' + OCCASIONS.map(function (o) {
@@ -1063,7 +1105,7 @@
     var footer = '<div style="display:flex; gap:8px;">' +
       (w.step > 1 ? '<button class="btn-ghost" style="flex:1;" onclick="wizardPrevStep()">이전</button>' : '') +
       (w.step !== 2 && w.step < 5 ? '<button class="btn-primary" style="flex:2;" onclick="wizardNextStep()">다음</button>' : '') +
-      (w.step === 5 ? '<button class="btn-primary" style="flex:2;" onclick="finishWizard()">🎉 위시 등록 완료</button>' : '') +
+      (w.step === 5 ? '<button class="btn-primary" style="flex:2;" ' + (state.ui.creatingWish ? 'disabled' : '') + ' onclick="finishWizard()">' + (state.ui.creatingWish ? '⏳ 등록 중...' : '🎉 위시 등록 완료') + '</button>' : '') +
     '</div>';
     return '' +
       '<div class="sheet-backdrop" onclick="closeCreateWizard()">' +
@@ -1129,7 +1171,20 @@
     render();
   }, 4000);
 
-  render();
+  // "친구랑 같이 쓰는" 위시보드의 핵심은 다른 사람이 보탠 게 내 화면에도 보여야 한다는 건데,
+  // 내가 직접 뭔가 하지 않는 한(위시 등록/보태기) 화면이 다시 서버를 조회할 일이 아예 없었다 -
+  // 친구가 방금 보탠 걸 확인하려면 새로고침해야만 했다. 주기적으로 조용히 새로 받아온다.
+  // 시트가 열려있을 때 건드리면 안 되는 이유는 위 인터벌과 같다.
+  setInterval(function () {
+    if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen) return;
+    syncWishesFromServer();
+    syncNotificationsFromServer();
+  }, 15000);
+
+  render(); // 서버 응답 오기 전에도 "불러오는 중" 화면이 바로 보이게 먼저 한 번 그린다
+  joinWishFromUrl();
+  syncWishesFromServer();
+  syncNotificationsFromServer();
 })();
 </script>
 </body>
