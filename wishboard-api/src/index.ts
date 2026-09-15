@@ -1,5 +1,6 @@
 /**
  * WishBoard API Worker
+ * (재배포 트리거용 주석 - 이전 커밋이 오랫동안 배포되지 않아 추가)
  *
  * Endpoints:
  *   GET    /api/wishes                 -> list all wishes (+ members, contributions)
