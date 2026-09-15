@@ -425,10 +425,11 @@
       user: { id: meId, name: '나', avatar: '😊' },
       friends: friends,
       wishes: wishes,
+      // wishId를 실제 위시 id로 채워둬서 알림을 누르면 그 위시 상세로 바로 이동한다.
       notifications: [
-        { id: uid('n'), type: 'gift_arrived', text: '민호님이 "소니 미러리스 카메라 업그레이드"에 40,000원을 보탰어요', at: Date.now() - 86400000, read: false },
-        { id: uid('n'), type: 'dday_soon', text: '도윤님의 "도쿄 마라톤" 위시가 D-8이에요, 지금 보태보세요!', at: Date.now() - 3600000 * 5, read: false },
-        { id: uid('n'), type: 'cheer_comment', text: '서연님의 위시에 응원 댓글이 달렸어요', at: Date.now() - 3600000 * 20, read: true },
+        { id: uid('n'), type: 'gift_arrived', wishId: wishes[1].id, text: '민호님이 "소니 미러리스 카메라 업그레이드"에 40,000원을 보탰어요', at: Date.now() - 86400000, read: false },
+        { id: uid('n'), type: 'dday_soon', wishId: wishes[2].id, text: '도윤님의 "도쿄 마라톤" 위시가 D-8이에요, 지금 보태보세요!', at: Date.now() - 3600000 * 5, read: false },
+        { id: uid('n'), type: 'cheer_comment', wishId: wishes[0].id, text: '서연님의 위시에 응원 댓글이 달렸어요', at: Date.now() - 3600000 * 20, read: true },
       ],
       myGifts: [],
       customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
@@ -448,6 +449,26 @@
   }
 
   var state = loadState();
+
+  // "마감 임박" 알림이 시드 데이터로만 하나 있었을 뿐, 실제로 위시가 마감에 가까워져도 아무 알림이
+  // 새로 생기지 않았다 - 앱을 열 때마다 임박한(D-3 이내, 아직 미달성, 내 위시 아님) 위시를 훑어서
+  // 이미 알림을 보낸 적 없으면 하나 만든다. 매번 render()를 부르진 않고(로드 시점에 한 번만) 상태만
+  // 채워두면 이후 첫 render()에서 자연히 반영된다.
+  (function generateDdaySoonNotifications() {
+    state.wishes.forEach(function (w) {
+      if (isWishMine(w) || w.currentAmount >= w.goalAmount) return;
+      var d = daysUntil(w.deadline);
+      if (d < 0 || d > 3) return;
+      var already = state.notifications.some(function (n) { return n.type === 'dday_soon' && n.wishId === w.id; });
+      if (already) return;
+      var who = w.type === 'group' ? (w.groupName || '단체') : w.ownerName;
+      state.notifications.unshift({
+        id: uid('n'), type: 'dday_soon', wishId: w.id,
+        text: who + '님의 "' + w.title + '" 위시가 D-' + d + '이에요, 지금 보태보세요!',
+        at: Date.now(), read: false,
+      });
+    });
+  })();
 
   function applyTheme() {
     var theme = THEME_COLORS.filter(function (t) { return t.id === state.customization.themeColor; })[0] || THEME_COLORS[0];
@@ -513,6 +534,14 @@
   };
   window.closeWishDetail = function () { state.ui.wishDetailId = null; state.ui.giftDraft = null; render(); };
 
+  window.deleteWish = function (id) {
+    if (!confirm('이 위시를 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+    state.wishes = state.wishes.filter(function (w) { return w.id !== id; });
+    closeWishDetail();
+    saveState();
+    showToast('위시가 삭제됐어요.');
+  };
+
   window.pickGiftAmount = function (amount) {
     state.ui.giftDraft.amount = amount;
     state.ui.giftDraft.customAmount = '';
@@ -546,7 +575,7 @@
     wish.contributions.unshift(contribution);
     wish.currentAmount += applied;
     state.myGifts.unshift({ id: uid('g'), toWishId: wish.id, toName: wish.ownerName, wishTitle: wish.title, category: wish.category, amount: applied, at: Date.now() });
-    state.notifications.unshift({ id: uid('n'), type: 'gift_arrived', text: (draft.anonymous ? '익명의 친구' : state.user.name) + '님이 "' + wish.title + '"에 ' + formatWon(applied) + '을 보탰어요', at: Date.now(), read: true });
+    state.notifications.unshift({ id: uid('n'), type: 'gift_arrived', wishId: wish.id, text: (draft.anonymous ? '익명의 친구' : state.user.name) + '님이 "' + wish.title + '"에 ' + formatWon(applied) + '을 보탰어요', at: Date.now(), read: true });
     closeWishDetail();
     saveState();
     showToast(applied < amount ? ('🎉 목표금액까지만 반영돼서 ' + formatWon(applied) + ' 보탰어요!') : ('🎉 카카오페이로 ' + formatWon(applied) + ' 보탰어요!'));
@@ -679,10 +708,18 @@
   window.setCardStyle = function (id) { state.customization.cardStyle = id; render(); };
   window.toggleWidget = function (key) { state.customization.widgets[key] = !state.customization.widgets[key]; render(); };
 
+  // 읽음 처리만 하고 끝나서, "OO님이 OO에 5,000원 보탰어요" 알림을 눌러도 정작 그 위시로
+  // 갈 방법이 없었다 - wishId가 있으면 상세 화면까지 열어준다.
   window.markNotifRead = function (id) {
     var n = state.notifications.filter(function (x) { return x.id === id; })[0];
-    if (n) n.read = true;
-    render(); saveState();
+    if (!n) return;
+    n.read = true;
+    saveState();
+    if (n.wishId && state.wishes.some(function (w) { return w.id === n.wishId; })) {
+      openWishDetail(n.wishId);
+    } else {
+      render();
+    }
   };
 
   // path 유틸 (텍스트 입력 상태 동기화용)
@@ -700,7 +737,6 @@
     var results = candidates.map(function (wish) {
       var friend = state.friends.filter(function (f) { return f.id === wish.ownerId; })[0] || { interests: [] };
       var remain = wish.goalAmount - wish.currentAmount;
-      var remainRatio = 1 - wish.currentAmount / wish.goalAmount; // 남은 비율이 클수록(막 시작) 관련도 UP은 아니고, 적당히 반영
       var dday = daysUntil(wish.deadline);
 
       // 과거 이 친구에게 보낸 선물 이력(카테고리 매칭) 점수
@@ -728,7 +764,13 @@
       else if (dday <= 25) { score += 14; reasons.push('D-' + dday + ', 여유 있게 준비 가능'); }
       else { score += 6; reasons.push('D-' + dday); }
 
-      var suggestedAmount = Math.min(remain, tier.max === Infinity ? 30000 : Math.round((tier.min + Math.min(tier.max, remain)) / 2) || 10000);
+      // tier.max === Infinity는 '전체'(min 0)와 '프리미엄'(min 60000) 둘 다 해당되는데, 예전에는
+      // 이 조건이면 무조건 30000원으로 제안해서 - 프리미엄 탭을 골라도 제안액이 항상 30000원에
+      // 묶여 있으니 바로 아래 필터(suggestedAmount >= tier.min, 즉 >= 60000)를 절대 못 넘어
+      // "프리미엄" 탭이 뭘 골라도 결과가 하나도 안 뜨는 버그였다. tier.min을 반영해야 한다.
+      var suggestedAmount = (tier.max === Infinity)
+        ? Math.min(remain, Math.max(tier.min, 30000))
+        : Math.min(remain, Math.round((tier.min + Math.min(tier.max, remain)) / 2) || 10000);
       return {
         wish: wish, friend: friend, score: Math.min(99, score), reasons: reasons.slice(0, 4),
         suggestedAmount: Math.max(1000, Math.round(suggestedAmount / 1000) * 1000),
@@ -933,7 +975,11 @@
         }).join('')
       : '<div style="font-size:12px; color:var(--text-sub); padding:8px 0;">아직 응원이 없어요, 첫 번째로 보태보세요!</div>';
 
-    var giftForm = isMine ? '' : '' +
+    // isMine일 땐 내 위시라 남에게 선물 못 하니 빈 문자열이었는데, 그러면 정작 만든 위시를
+    // 지울 방법이 하나도 없었다(데모 중에 테스트로 만든 위시가 계속 쌓이기만 함) - 삭제 버튼을 둔다.
+    var giftForm = isMine
+      ? '<button class="btn-ghost" style="color:var(--danger); margin-top:4px;" onclick="deleteWish(\'' + wish.id + '\')">🗑️ 이 위시 삭제하기</button>'
+      : '' +
       '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">얼마나 보탤까요?</div>' +
       '<div class="amount-grid">' + amountChips + '</div>' +
       '<input type="text" inputmode="numeric" placeholder="직접 입력 (원)" value="' + esc(draft.customAmount) + '" oninput="setCustomGiftAmount(this)" />' +
