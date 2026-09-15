@@ -1400,7 +1400,7 @@
               '<div class="stat-row" style="margin-top:2px;"><span class="pct">' + itemPct + '%</span><span class="amt">' + formatWon(item.currentAmount) + ' / ' + formatWon(item.goalAmount) + '</span></div>' +
             '</div>' +
           '</div>' +
-          (!isMine && !isOpen ? '<button class="btn-primary" style="width:100%; margin-top:8px;" onclick="openItemGift(\'' + item.id + '\')">💛 이 아이템에 선물하기</button>' : '') +
+          (!isOpen ? '<button class="btn-primary" style="width:100%; margin-top:8px;" onclick="openItemGift(\'' + item.id + '\')">💛 이 아이템에 선물하기</button>' : '') +
           giftHere +
         '</div>';
     }).join('');
@@ -1428,7 +1428,11 @@
       '</div>' : '';
 
     var addItemForm = isMine ? renderAddItemForm(wish.id) : '';
-    var chatEntry = !isMine ? '<button class="btn-ghost" onclick="openChat(\'' + wish.id + '\')">💬 ' + esc(wish.ownerName) + '님과 대화하기</button>' : '';
+    // openChat()은 isWishMine()으로 owner인지 스스로 판단해서 owner면 대화 목록을, 방문자면
+    // 바로 그 위시 주인과의 대화 스레드를 연다 - 버튼 문구만 상황에 맞게 바꿔서 보여준다.
+    var chatEntry = isMine
+      ? '<button class="btn-ghost" onclick="openChat(\'' + wish.id + '\')">💬 대화 목록 보기</button>'
+      : '<button class="btn-ghost" onclick="openChat(\'' + wish.id + '\')">💬 ' + esc(wish.ownerName) + '님과 대화하기</button>';
 
     return '' +
       '<div class="detail-page">' +
