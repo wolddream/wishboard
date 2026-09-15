@@ -397,7 +397,7 @@
       wishes: [],
       notifications: [],
       customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
-      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false },
+      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false, homeSearch: '' },
     };
   }
 
@@ -520,6 +520,7 @@
   // ============ Actions ============
   window.setTab = function (tab) { state.ui.tab = tab; render(); };
   window.setCategoryFilter = function (c) { state.ui.categoryFilter = c; render(); };
+  window.onHomeSearchInput = function (el) { state.ui.homeSearch = el.value; render(); };
   window.setBudgetTier = function (b) { state.ui.budgetTier = b; render(); };
 
   window.openWishDetail = function (id) {
@@ -1039,16 +1040,27 @@
   }
 
   function renderHome() {
+    var query = (state.ui.homeSearch || '').trim().toLowerCase();
     var filtered = state.wishes.filter(function (w) {
-      return state.ui.categoryFilter === 'all' || w.category === state.ui.categoryFilter;
+      if (state.ui.categoryFilter !== 'all' && w.category !== state.ui.categoryFilter) return false;
+      if (!query) return true;
+      return (w.title || '').toLowerCase().indexOf(query) >= 0 ||
+        (w.subtitle || '').toLowerCase().indexOf(query) >= 0 ||
+        wishOwnerLabel(w).toLowerCase().indexOf(query) >= 0;
     });
+    var searchBar = '<div style="padding:0 16px 8px;">' +
+      '<input id="home-search-input" type="text" placeholder="🔍 위시 제목, 소개, 만든 사람 검색" value="' + esc(state.ui.homeSearch) + '" oninput="onHomeSearchInput(this)" ' +
+        'style="width:100%; padding:11px 14px; border:1px solid var(--border); border-radius:12px; background:var(--card); font-size:13.5px;" />' +
+      '</div>';
     var chips = CATEGORY_FILTERS.map(function (c) {
       return '<button class="chip' + (state.ui.categoryFilter === c.type ? ' active' : '') + '" onclick="setCategoryFilter(\'' + c.type + '\')">' + esc(c.label) + '</button>';
     }).join('');
     var cards = state.ui.loading
       ? '<div class="empty-state">⏳<br/>위시 불러오는 중...</div>'
-      : (filtered.length ? filtered.map(wishCardHtml).join('') : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요<br/>+ 버튼으로 첫 위시를 만들어보세요!</div>');
-    return cheerTickerHtml() + '<div class="scroll-x">' + chips + '</div>' + cards;
+      : (filtered.length ? filtered.map(wishCardHtml).join('') : query
+          ? '<div class="empty-state">🔍<br/>검색 결과가 없어요</div>'
+          : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요<br/>+ 버튼으로 첫 위시를 만들어보세요!</div>');
+    return cheerTickerHtml() + searchBar + '<div class="scroll-x">' + chips + '</div>' + cards;
   }
 
   function renderExplore() {
@@ -1301,16 +1313,21 @@
       '</div>';
   }
 
-  // 위시 스토리 입력창 IME 조합 이벤트 - oncompositionstart/end는 인라인 어트리뷰트로 등록해도
-  // 브라우저가 GlobalEventHandlers로 인식하지 않아 죽은 코드가 되므로 document에 위임한다.
-  // render()가 #root를 통째로 교체해 매번 새 <textarea> 노드가 생겨도 document 리스너는 유효하다.
+  // IME(한글) 조합 이벤트 - oncompositionstart/end는 인라인 어트리뷰트로 등록해도 브라우저가
+  // GlobalEventHandlers로 인식하지 않아 죽은 코드가 되므로 document에 위임한다. render()가
+  // #root를 통째로 교체해 매번 새 입력창 노드가 생겨도 document 리스너는 유효하다. 홈 화면
+  // 검색창도 15초 백그라운드 동기화 중 render()가 불릴 수 있어 같은 가드가 필요하다.
   document.addEventListener('compositionstart', function (e) {
-    if (e.target && e.target.id === 'wizard-story-input') e.target.dataset.composing = 'true';
+    if (e.target && (e.target.id === 'wizard-story-input' || e.target.id === 'home-search-input')) e.target.dataset.composing = 'true';
   });
   document.addEventListener('compositionend', function (e) {
-    if (e.target && e.target.id === 'wizard-story-input') {
+    if (!e.target) return;
+    if (e.target.id === 'wizard-story-input') {
       e.target.dataset.composing = 'false';
       window.wizardSetStory(e.target);
+    } else if (e.target.id === 'home-search-input') {
+      e.target.dataset.composing = 'false';
+      window.onHomeSearchInput(e.target);
     }
   });
 
