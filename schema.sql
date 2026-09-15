@@ -71,10 +71,25 @@ CREATE INDEX IF NOT EXISTS idx_contributions_item ON contributions(item_id);
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  type TEXT NOT NULL, -- 'gift_arrived' | 'dday_soon' | 'cheer_comment'
+  type TEXT NOT NULL, -- 'gift_arrived' | 'dday_soon' | 'cheer_comment' | 'chat_message'
   wish_id TEXT,
   text TEXT NOT NULL,
   is_read INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+
+-- 위시 하나에 여러 사람이 각자 위시 주인과 1:1로 대화한다. peer_id는 항상 "owner가 아닌 쪽"의
+-- id라, owner 입장에선 peer_id별로 대화 상대가 나뉘고 peer 입장에선 자기 자신의 id가 곧
+-- peer_id라 스레드가 하나뿐이다(위시 주인과의 대화).
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  wish_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  peer_id TEXT NOT NULL,
+  from_user_id TEXT NOT NULL,
+  from_name TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chat_thread ON chat_messages(wish_id, peer_id, created_at);

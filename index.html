@@ -144,6 +144,15 @@
   @keyframes sheet-up { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   .sheet-head { display: flex; justify-content: space-between; align-items: center; }
   .sheet-head h2 { font-size: 16px; font-weight: 900; margin: 0; }
+
+  /* 위시 상세는 팝업(바텀시트)이 아니라 진짜 화면 전환처럼 보이게 - 뒤로가기(브라우저/안드로이드
+     제스처 포함)로 나갈 수 있도록 history.pushState + hashchange로 여닫는다(아래 스크립트 참고). */
+  .detail-page {
+    position: fixed; inset: 0; z-index: 110; background: var(--bg); overflow-y: auto;
+    display: flex; flex-direction: column; gap: 14px; padding: 14px 18px calc(18px + env(safe-area-inset-bottom));
+    animation: page-in 0.22s cubic-bezier(0.2,0.8,0.3,1);
+  }
+  @keyframes page-in { from { transform: translateX(28px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   textarea, input[type="text"], input[type="number"] {
     width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 13.5px;
     background: #fff; color: var(--text);
@@ -397,7 +406,12 @@
       wishes: [],
       notifications: [],
       customization: { themeColor: 'kakao', profileLayout: 'bento', cardStyle: 'soft', widgets: { dday: true, gaugeRing: true, cheerToast: true } },
-      ui: { tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null, customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false, homeSearch: '' },
+      ui: {
+        tab: 'home', categoryFilter: 'all', budgetTier: 'all', wishDetailId: null, giftDraft: null, createWizard: null,
+        customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false,
+        homeSearch: '', addItemDraft: null, savingAddItem: false,
+        chatWishId: null, chatPeerId: null, chatThreads: null, chatMessages: null, chatDraft: '', sendingChat: false,
+      },
     };
   }
 
@@ -523,12 +537,37 @@
   window.onHomeSearchInput = function (el) { state.ui.homeSearch = el.value; render(); };
   window.setBudgetTier = function (b) { state.ui.budgetTier = b; render(); };
 
+  // 위시 상세는 바텀시트 팝업이 아니라 진짜 "페이지 이동"처럼 동작해야 해서(뒤로가기로
+  // 나가야 함), state만 바꾸는 게 아니라 실제로 history를 한 칸 쌓는다 - 그래야 브라우저/
+  // 안드로이드 뒤로가기 버튼이 앱을 통째로 벗어나지 않고 이 페이지만 닫는다.
   window.openWishDetail = function (id) {
     state.ui.wishDetailId = id;
     state.ui.giftDraft = null;
+    if (location.hash !== '#wish=' + id) history.pushState({ wishDetail: id }, '', location.pathname + location.search + '#wish=' + id);
     render();
   };
-  window.closeWishDetail = function () { state.ui.wishDetailId = null; state.ui.giftDraft = null; state.ui.editWishDraft = null; render(); };
+  window.closeWishDetail = function () {
+    state.ui.wishDetailId = null;
+    state.ui.giftDraft = null;
+    state.ui.editWishDraft = null;
+    if (/^#wish=/.test(location.hash)) history.back();
+    else render();
+  };
+  // 뒤로가기(브라우저 버튼, 안드로이드 제스처/버튼)로 #wish=/#chat=가 사라지면 여기서 감지해서
+  // 그 페이지를 닫는다. history.back()으로 닫힐 때도 이 이벤트가 뒤이어 발생해 render()가 불린다.
+  window.addEventListener('popstate', function () {
+    var chatMatch = /^#chat=([^&]+)/.exec(location.hash);
+    if (!chatMatch && state.ui.chatWishId) {
+      state.ui.chatWishId = null; state.ui.chatPeerId = null; state.ui.chatThreads = null; state.ui.chatMessages = null;
+    }
+    var wishMatch = /#wish=([^&]+)/.exec(location.hash);
+    if (wishMatch) {
+      if (state.ui.wishDetailId !== wishMatch[1]) { state.ui.wishDetailId = wishMatch[1]; state.ui.giftDraft = null; }
+    } else if (state.ui.wishDetailId) {
+      state.ui.wishDetailId = null; state.ui.giftDraft = null; state.ui.editWishDraft = null;
+    }
+    render();
+  });
 
   // 아이템 하나를 골라 선물 폼을 그 아이템 밑에 펼친다 - 위시 전체가 아니라 아이템 단위로
   // 선물하는 구조라, 어느 아이템에 보탤지를 draft.itemId로 들고 있는다.
@@ -590,6 +629,123 @@
         state.ui.savingWishEdit = false;
         render();
         showToast('수정에 실패했어요. 다시 시도해주세요.');
+      });
+  };
+
+  // ---- 위시에 아이템 나중에 추가하기 (만든 사람만) ----
+  window.startAddItem = function (wishId) {
+    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrl: '', goal: '' };
+    render();
+  };
+  window.cancelAddItem = function () { state.ui.addItemDraft = null; render(); };
+  window.setAddItemField = function (field, el) { if (state.ui.addItemDraft) state.ui.addItemDraft[field] = el.value; };
+  window.saveAddItem = function () {
+    var d = state.ui.addItemDraft;
+    if (!d) return;
+    var name = (d.name || '').trim();
+    if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
+    if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
+    if (containsBannedWord(name)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    state.ui.savingAddItem = true;
+    render();
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+    })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('add item failed')); })
+      .then(function () {
+        state.ui.addItemDraft = null;
+        state.ui.savingAddItem = false;
+        showToast('아이템을 추가했어요! 🎁');
+        syncWishesFromServer();
+      })
+      .catch(function () {
+        state.ui.savingAddItem = false;
+        render();
+        showToast('추가에 실패했어요. 다시 시도해주세요.');
+      });
+  };
+
+  // ---- 위시 주인과 1:1 대화 ----
+  window.openChat = function (wishId) {
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    if (!wish) return;
+    state.ui.chatWishId = wishId;
+    state.ui.chatPeerId = null;
+    state.ui.chatThreads = null;
+    state.ui.chatMessages = null;
+    state.ui.chatDraft = '';
+    if (!/^#chat=/.test(location.hash)) history.pushState({ chat: wishId }, '', location.pathname + location.search + '#chat=' + wishId);
+    render();
+    if (isWishMine(wish)) fetchChatThreads(wishId);
+    else openChatThread(wishId, state.user.id);
+  };
+  function fetchChatThreads(wishId) {
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/chat/threads?user_id=' + encodeURIComponent(state.user.id))
+      .then(function (res) { return res.ok ? res.json() : { threads: [] }; })
+      .then(function (data) {
+        if (state.ui.chatWishId !== wishId) return; // 그 사이 닫혔으면 무시
+        state.ui.chatThreads = data.threads || [];
+        render();
+      })
+      .catch(function () { state.ui.chatThreads = []; render(); });
+  }
+  window.openChatThread = function (wishId, peerId) {
+    state.ui.chatWishId = wishId;
+    state.ui.chatPeerId = peerId;
+    state.ui.chatMessages = null;
+    render();
+    fetchChatMessages(wishId, peerId);
+  };
+  window.backToChatThreads = function () {
+    state.ui.chatPeerId = null;
+    state.ui.chatMessages = null;
+    fetchChatThreads(state.ui.chatWishId);
+  };
+  function fetchChatMessages(wishId, peerId) {
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/chat?peer_id=' + encodeURIComponent(peerId))
+      .then(function (res) { return res.ok ? res.json() : { messages: [] }; })
+      .then(function (data) {
+        if (state.ui.chatWishId !== wishId || state.ui.chatPeerId !== peerId) return;
+        state.ui.chatMessages = data.messages || [];
+        render();
+      })
+      .catch(function () { state.ui.chatMessages = []; render(); });
+  }
+  window.closeChat = function () {
+    state.ui.chatWishId = null; state.ui.chatPeerId = null; state.ui.chatThreads = null; state.ui.chatMessages = null;
+    if (/^#chat=/.test(location.hash)) history.back(); else render();
+  };
+  window.setChatDraft = function (el) { state.ui.chatDraft = el.value; };
+  window.deleteChatMessage = function (messageId) {
+    if (!confirm('이 메시지를 삭제할까요?')) return;
+    var wishId = state.ui.chatWishId, peerId = state.ui.chatPeerId;
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/chat/' + encodeURIComponent(messageId) + '?user_id=' + encodeURIComponent(state.user.id), { method: 'DELETE' })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('delete failed')); })
+      .then(function () { fetchChatMessages(wishId, peerId); })
+      .catch(function () { showToast('삭제에 실패했어요.'); });
+  };
+  window.sendChatMessage = function () {
+    var text = (state.ui.chatDraft || '').trim();
+    if (!text || state.ui.sendingChat) return;
+    if (containsBannedWord(text)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    var wishId = state.ui.chatWishId, peerId = state.ui.chatPeerId;
+    state.ui.sendingChat = true;
+    render();
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_user_id: state.user.id, from_name: state.user.name, from_avatar: state.user.avatar, peer_id: peerId, text: text }),
+    })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('send failed')); })
+      .then(function () {
+        state.ui.chatDraft = '';
+        state.ui.sendingChat = false;
+        fetchChatMessages(wishId, peerId);
+      })
+      .catch(function () {
+        state.ui.sendingChat = false;
+        showToast('메시지 전송에 실패했어요.');
+        render();
       });
   };
 
@@ -911,7 +1067,9 @@
     if (!n) return;
     n.read = true;
     saveState();
-    if (n.wishId && state.wishes.some(function (w) { return w.id === n.wishId; })) {
+    if (n.type === 'chat_message' && n.wishId && state.wishes.some(function (w) { return w.id === n.wishId; })) {
+      openChat(n.wishId);
+    } else if (n.wishId && state.wishes.some(function (w) { return w.id === n.wishId; })) {
       openWishDetail(n.wishId);
     } else {
       render();
@@ -999,6 +1157,7 @@
     html += renderBottomNav();
     if (state.ui.tab === 'home') html += '<button id="fab" onclick="openCreateWizard()">+</button>';
     if (state.ui.wishDetailId) html += renderWishDetailSheet();
+    if (state.ui.chatWishId) html += renderChatPage();
     if (state.ui.createWizard) html += renderCreateWizard();
     if (state.ui.customizeOpen) html += renderCustomizeSheet();
     if (state.ui.toast) html += '<div id="cheer-toast">🔔 ' + esc(state.ui.toast) + '</div>';
@@ -1122,7 +1281,7 @@
 
   function renderNotifications() {
     if (!state.notifications.length) return '<div class="empty-state">🔔<br/>아직 알림이 없어요</div>';
-    var icons = { gift_arrived: '🎉', dday_soon: '⏰', cheer_comment: '💬' };
+    var icons = { gift_arrived: '🎉', dday_soon: '⏰', cheer_comment: '💬', chat_message: '💬' };
     return state.notifications.map(function (n) {
       return '' +
         '<div class="notif-item' + (n.read ? '' : ' unread') + '" onclick="markNotifRead(\'' + n.id + '\')">' +
@@ -1262,22 +1421,88 @@
         '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingWishEdit ? 'disabled' : '') + ' onclick="saveEditWish()">' + (state.ui.savingWishEdit ? '저장 중...' : '저장하기') + '</button>' +
       '</div>' : '';
 
+    var addItemForm = isMine ? renderAddItemForm(wish.id) : '';
+    var chatEntry = !isMine ? '<button class="btn-ghost" onclick="openChat(\'' + wish.id + '\')">💬 ' + esc(wish.ownerName) + '님과 대화하기</button>' : '';
+
     return '' +
-      '<div class="sheet-backdrop" onclick="closeWishDetail()">' +
-        '<div class="bottom-sheet" onclick="event.stopPropagation()">' +
-          '<div class="sheet-head"><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><button class="icon-btn" onclick="closeWishDetail()">✕</button></div>' +
-          '<div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-sub);">' + wishAvatarHtml(wish, 26) + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + ' · ' + ddayBadge(wish.deadline) + '</div>' +
-          (editing ? editForm : '' +
-            (wish.story ? '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💭 희망하는 이유</div><div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">' + esc(wish.story) + '</div>' : '') +
-            '<div>' +
-              '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
-              '<div class="stat-row"><span class="pct">전체 ' + pct + '% 달성</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
-            '</div>' +
-            '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:8px;">🎁 위시 아이템 (' + (wish.items || []).length + ')</div>' +
-            itemsHtml +
-            ownerActions +
-            '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💌 응원 방명록</div>' +
-            '<div>' + timeline + '</div>') +
+      '<div class="detail-page">' +
+        '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><span style="width:34px;"></span></div>' +
+        '<div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-sub);">' + wishAvatarHtml(wish, 26) + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + ' · ' + ddayBadge(wish.deadline) + '</div>' +
+        (editing ? editForm : '' +
+          (wish.story ? '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💭 희망하는 이유</div><div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">' + esc(wish.story) + '</div>' : '') +
+          '<div>' +
+            '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div></div>' +
+            '<div class="stat-row"><span class="pct">전체 ' + pct + '% 달성</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
+          '</div>' +
+          '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:8px;">🎁 위시 아이템 (' + (wish.items || []).length + ')</div>' +
+          itemsHtml +
+          addItemForm +
+          chatEntry +
+          ownerActions +
+          '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💌 응원 방명록</div>' +
+          '<div>' + timeline + '</div>') +
+      '</div>';
+  }
+
+  // ---- 위시에 아이템 추가 (만든 사람만) ----
+  function renderAddItemForm(wishId) {
+    var d = state.ui.addItemDraft;
+    if (!d || d.wishId !== wishId) {
+      return '<button class="btn-ghost" style="margin-top:4px;" onclick="startAddItem(\'' + wishId + '\')">+ 아이템 추가</button>';
+    }
+    return '' +
+      '<div style="border:1px dashed var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px; margin-top:4px;">' +
+        '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(d.name) + '" oninput="setAddItemField(\'name\', this)" />' +
+        '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(d.link) + '" oninput="setAddItemField(\'link\', this)" />' +
+        '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(d.imageUrl) + '" oninput="setAddItemField(\'imageUrl\', this)" />' +
+        '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
+        '<div style="display:flex; gap:8px;">' +
+          '<button class="btn-ghost" style="flex:1;" onclick="cancelAddItem()">취소</button>' +
+          '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingAddItem ? 'disabled' : '') + ' onclick="saveAddItem()">' + (state.ui.savingAddItem ? '추가 중...' : '추가하기') + '</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderChatPage() {
+    var wishId = state.ui.chatWishId;
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    if (!wish) return '';
+    var isOwner = wish.ownerId === state.user.id;
+
+    if (isOwner && !state.ui.chatPeerId) {
+      var threads = state.ui.chatThreads;
+      var listBody = threads === null
+        ? '<div class="empty-state">⏳<br/>불러오는 중...</div>'
+        : (threads.length ? threads.map(function (t) {
+            return '<div class="cheer-item" onclick="openChatThread(\'' + wishId + '\', \'' + t.peerId + '\')" style="cursor:pointer;"><span class="who">' + t.peerAvatar + ' ' + esc(t.peerName) + '</span><span class="msg">' + esc(t.lastText) + '</span></div>';
+          }).join('') : '<div class="empty-state">💬<br/>아직 대화가 없어요</div>');
+      return '' +
+        '<div class="detail-page" style="z-index:120;">' +
+          '<div class="sheet-head"><button class="icon-btn" onclick="closeChat()">←</button><h2>💬 대화 목록</h2><span style="width:34px;"></span></div>' +
+          listBody +
+        '</div>';
+    }
+
+    var messages = state.ui.chatMessages;
+    var msgHtml = messages === null
+      ? '<div class="empty-state">⏳<br/>불러오는 중...</div>'
+      : (messages.length ? messages.map(function (m) {
+          var mine = m.fromUserId === state.user.id;
+          return '' +
+            '<div style="display:flex; flex-direction:column; align-items:' + (mine ? 'flex-end' : 'flex-start') + '; margin-bottom:8px;">' +
+              (mine ? '' : '<div style="font-size:10.5px; font-weight:800; color:var(--text-sub); margin-bottom:2px; padding:0 4px;">' + esc(m.fromName) + '</div>') +
+              '<div style="max-width:75%; padding:9px 12px; border-radius:14px; font-size:13px; line-height:1.4; word-break:break-word; background:' + (mine ? 'var(--primary)' : 'var(--card)') + '; color:' + (mine ? 'var(--primary-text)' : 'var(--text)') + '; border:' + (mine ? 'none' : '1px solid var(--border)') + ';">' + esc(m.text) + '</div>' +
+              (mine ? '<button onclick="deleteChatMessage(\'' + m.id + '\')" style="background:none; border:none; color:var(--text-sub); font-size:10.5px; padding:2px 4px; cursor:pointer;">삭제</button>' : '') +
+            '</div>';
+        }).join('') : '<div class="empty-state">💬<br/>첫 메시지를 보내보세요!</div>');
+
+    return '' +
+      '<div class="detail-page" style="z-index:120;">' +
+        '<div class="sheet-head"><button class="icon-btn" onclick="' + (isOwner ? 'backToChatThreads()' : 'closeChat()') + '">←</button><h2>💬 ' + esc(wish.title) + '</h2><span style="width:34px;"></span></div>' +
+        '<div style="flex:1; overflow-y:auto; display:flex; flex-direction:column;">' + msgHtml + '</div>' +
+        '<div style="display:flex; gap:6px; position:sticky; bottom:0; background:var(--bg); padding-top:6px;">' +
+          '<input id="chat-input" type="text" placeholder="메시지를 입력하세요" value="' + esc(state.ui.chatDraft) + '" oninput="setChatDraft(this)" style="flex:1;" />' +
+          '<button class="btn-primary" style="width:auto; padding:0 16px;" ' + (state.ui.sendingChat ? 'disabled' : '') + ' onclick="sendChatMessage()">전송</button>' +
         '</div>' +
       '</div>';
   }
@@ -1397,7 +1622,7 @@
   // #root를 통째로 교체해 매번 새 입력창 노드가 생겨도 document 리스너는 유효하다. 홈 화면
   // 검색창도 15초 백그라운드 동기화 중 render()가 불릴 수 있어 같은 가드가 필요하다.
   document.addEventListener('compositionstart', function (e) {
-    if (e.target && (e.target.id === 'wizard-story-input' || e.target.id === 'home-search-input')) e.target.dataset.composing = 'true';
+    if (e.target && (e.target.id === 'wizard-story-input' || e.target.id === 'home-search-input' || e.target.id === 'chat-input')) e.target.dataset.composing = 'true';
   });
   document.addEventListener('compositionend', function (e) {
     if (!e.target) return;
@@ -1407,8 +1632,25 @@
     } else if (e.target.id === 'home-search-input') {
       e.target.dataset.composing = 'false';
       window.onHomeSearchInput(e.target);
+    } else if (e.target.id === 'chat-input') {
+      e.target.dataset.composing = 'false';
+      window.setChatDraft(e.target);
     }
   });
+
+  // 채팅창이 열려있는 동안엔 4초마다 조용히 새 메시지를 받아온다(실시간 웹소켓 없이 폴링으로
+  // "실시간"에 가깝게 흉내). 조합 중 render() 스킵은 render() 자체의 IME 가드가 처리한다.
+  setInterval(function () {
+    if (!state.ui.chatWishId || !state.ui.chatPeerId) return;
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(state.ui.chatWishId) + '/chat?peer_id=' + encodeURIComponent(state.ui.chatPeerId))
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data || state.ui.chatWishId === null || state.ui.chatPeerId === null) return;
+        state.ui.chatMessages = data.messages || [];
+        render();
+      })
+      .catch(function () {});
+  }, 4000);
 
   // "최근 응원 롤링 토스트" 위젯 - 순수 홈 피드가 보이는 동안만 몇 초마다 다음 응원으로 돌린다.
   // 위시 상세/위저드/꾸미기 시트가 위에 떠 있을 때는 절대 render()를 부르지 않는다 - 부르면 그
@@ -1434,6 +1676,11 @@
   }, 15000);
 
   applyKakaoLoginResult(); // 카카오 로그인 리다이렉트로 막 돌아온 경우, 첫 render 전에 신원부터 반영
+  // 새로고침했거나 위시 상세 링크로 바로 들어온 경우 - 해시에 남아있는 #wish=id를 복원한다.
+  (function () {
+    var m = /#wish=([^&]+)/.exec(location.hash);
+    if (m) state.ui.wishDetailId = m[1];
+  })();
   render(); // 서버 응답 오기 전에도 "불러오는 중" 화면이 바로 보이게 먼저 한 번 그린다
   joinWishFromUrl();
   syncWishesFromServer();

@@ -224,9 +224,9 @@ export async function handleDeleteWish(request: Request, env: Env, wishId: strin
 }
 
 // 삭제와 같은 신뢰 모델(owner만) - 단, 단체 위시 멤버는 수정 권한까지는 없다(내용은 만든
-// 사람만 고칠 수 있고, 멤버는 초대 링크로 합류해 선물만 보태는 역할). 아이템 목록 자체(추가/
-// 삭제/가격 변경)는 이미 들어온 선물과 얽혀 있어 여기서는 다루지 않고, 제목/소개/이유/마감일만
-// 수정한다.
+// 사람만 고칠 수 있고, 멤버는 초대 링크로 합류해 선물만 보태는 역할). 기존 아이템의 가격 변경/
+// 삭제는 이미 들어온 선물과 얽혀 있어 여기서는 다루지 않고, 제목/소개/이유/마감일만 수정한다.
+// 새 아이템 추가는 handleAddWishItem로 별도 처리(기존 선물과 무관하므로 안전).
 export async function handlePatchWish(request: Request, env: Env, wishId: string): Promise<Response> {
 	const body = (await request.json()) as {
 		user_id?: string;
@@ -245,6 +245,27 @@ export async function handlePatchWish(request: Request, env: Env, wishId: string
 		.run();
 
 	return json({ ok: true });
+}
+
+// 이미 등록된 위시에 아이템을 하나 더 추가한다(예: "마라톤 대회 참가"에 나중에 "양말" 추가) -
+// 기존 아이템/선물에는 손대지 않으므로 handlePatchWish와 달리 안전하게 언제든 가능하다.
+export async function handleAddWishItem(request: Request, env: Env, wishId: string): Promise<Response> {
+	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; goal_amount?: number };
+	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== body.user_id) return json({ error: "아이템 추가 권한이 없어요" }, 403);
+	if (!body.name || !body.name.trim() || !(Number(body.goal_amount) >= 1000)) {
+		return json({ error: "아이템 이름과 1,000원 이상의 가격이 필요해요" }, 400);
+	}
+
+	const { results: countRows } = await env.DB.prepare(`SELECT COUNT(*) as c FROM wish_items WHERE wish_id = ?`).bind(wishId).all<{ c: number }>();
+	const sortOrder = countRows[0]?.c ?? 0;
+	const itemId = uid("i");
+	await env.DB.prepare(`INSERT INTO wish_items (id, wish_id, name, link, image_url, goal_amount, current_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`)
+		.bind(itemId, wishId, body.name.trim().slice(0, 80), (body.link || "").trim().slice(0, 500), (body.image_url || "").trim().slice(0, 500), Math.max(1000, Math.round(Number(body.goal_amount))), sortOrder)
+		.run();
+
+	return json({ ok: true, id: itemId }, 201);
 }
 
 // 단체 위시는 만들 때 멤버를 미리 고르지 않는다(진짜 친구 목록이 없어서) - 대신 만든 사람이

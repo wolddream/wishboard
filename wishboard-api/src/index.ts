@@ -6,8 +6,13 @@
  *   POST   /api/wishes                 -> create a wish (personal or group)
  *   DELETE /api/wishes/:id?user_id=    -> delete a wish (owner or group member only)
  *   PATCH  /api/wishes/:id             -> edit a wish's content (owner only)
- *   POST   /api/wishes/:id/gift        -> send a contribution (server caps at goal, fans out notifications)
+ *   POST   /api/wishes/:id/items       -> add a new item to an existing wish (owner only)
+ *   POST   /api/wishes/:id/gift        -> send a contribution (server caps at item's goal, fans out notifications)
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
+ *   GET    /api/wishes/:id/chat?peer_id=       -> a 1:1 chat thread's messages
+ *   POST   /api/wishes/:id/chat                -> send a chat message (owner replies need peer_id; others reply as themselves)
+ *   DELETE /api/wishes/:id/chat/:messageId?user_id= -> delete a message you sent
+ *   GET    /api/wishes/:id/chat/threads?user_id= -> owner-only: list of who has messaged them about this wish
  *   GET    /api/users/:id              -> profile lookup (name/avatar)
  *   PATCH  /api/users/:id              -> update profile (name/avatar) - upserts
  *   GET    /api/notifications?user_id= -> a user's notifications
@@ -23,10 +28,11 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handlePostGift, handleJoinWish } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePostGift, handleJoinWish } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
+import { handleGetChat, handlePostChat, handleDeleteChat, handleGetChatThreads } from "./chat";
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
@@ -51,6 +57,10 @@ export default {
 			if (segments[0] === "api" && segments[1] === "wishes" && segments.length === 3 && request.method === "PATCH") {
 				return cors(await handlePatchWish(request, env, segments[2]));
 			}
+			// /api/wishes/:id/items
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "items" && request.method === "POST") {
+				return cors(await handleAddWishItem(request, env, segments[2]));
+			}
 			// /api/wishes/:id/gift
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && request.method === "POST") {
 				return cors(await handlePostGift(request, env, segments[2]));
@@ -58,6 +68,21 @@ export default {
 			// /api/wishes/:id/join
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "join" && request.method === "POST") {
 				return cors(await handleJoinWish(request, env, segments[2]));
+			}
+			// /api/wishes/:id/chat/threads (owner-only thread list) - must be checked before the plainer /chat route
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments[4] === "threads" && request.method === "GET") {
+				return cors(await handleGetChatThreads(request, env, segments[2]));
+			}
+			// /api/wishes/:id/chat
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments.length === 4 && request.method === "GET") {
+				return cors(await handleGetChat(request, env, segments[2]));
+			}
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments.length === 4 && request.method === "POST") {
+				return cors(await handlePostChat(request, env, segments[2]));
+			}
+			// /api/wishes/:id/chat/:messageId
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments.length === 5 && request.method === "DELETE") {
+				return cors(await handleDeleteChat(request, env, segments[2], segments[4]));
 			}
 			// /api/users/:id
 			if (segments[0] === "api" && segments[1] === "users" && segments.length === 3 && request.method === "GET") {
