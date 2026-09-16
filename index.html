@@ -1024,7 +1024,16 @@
 
   // ---- Create wizard ----
   // 5단계 위저드: ① 개인/단체 선택 ② 테마(occasion) ③ 템플릿 ④ 상세정보 ⑤ 확인
+  // 위저드/꾸미기/아바타 피커는 서로 무관한 "전체 화면 흐름"이라 동시에 떠 있으면 안 되는데
+  // (위시 상세→채팅→사진뷰어처럼 의도적으로 겹쳐 쌓이는 것과 다름), 이 셋 각각의 open 함수가
+  // 서로의 상태를 안 건드려서 어쩌다 두 개가 동시에 열리면 겹쳐 보이는 문제가 있었다.
+  function closeTopLevelOverlays() {
+    state.ui.createWizard = null;
+    state.ui.customizeOpen = false;
+    state.ui.avatarPickerOpen = false;
+  }
   window.openCreateWizard = function () {
+    closeTopLevelOverlays();
     state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [] };
     render();
   };
@@ -1194,7 +1203,7 @@
   };
 
   // ---- Customization ----
-  window.openCustomize = function () { state.ui.customizeOpen = true; render(); };
+  window.openCustomize = function () { closeTopLevelOverlays(); state.ui.customizeOpen = true; render(); };
   window.closeCustomize = function () { state.ui.customizeOpen = false; render(); saveState(); };
   window.setThemeColor = function (id) { state.customization.themeColor = id; render(); };
   window.setProfileLayout = function (id) { state.customization.profileLayout = id; render(); };
@@ -1219,7 +1228,7 @@
   };
 
   // ---- 프로필 아이콘(아바타) 수정 - 이모지 캐릭터 고르기 또는 사진 업로드 ----
-  window.openAvatarPicker = function () { state.ui.avatarPickerOpen = true; render(); };
+  window.openAvatarPicker = function () { closeTopLevelOverlays(); state.ui.avatarPickerOpen = true; render(); };
   window.closeAvatarPicker = function () { state.ui.avatarPickerOpen = false; render(); };
   window.setProfileAvatar = function (avatar) {
     state.user.avatar = avatar;
@@ -1596,7 +1605,7 @@
       if (isEditingItem) {
         return '' +
           '<div style="border:1px dashed var(--border); border-radius:14px; padding:12px; margin-bottom:8px; display:flex; flex-direction:column; gap:6px;" onclick="event.stopPropagation()">' +
-            '<input type="text" placeholder="아이템 이름 *" value="' + esc(itemEd.name) + '" oninput="setEditItemField(\'name\', this)" />' +
+            '<input type="text" placeholder="아이템 이름 *" value="' + esc(itemEd.name) + '" maxlength="80" oninput="setEditItemField(\'name\', this)" />' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(itemEd.link) + '" oninput="setEditItemField(\'link\', this)" />' +
             imageManagerHtml(itemEd.imageUrls, 'removeEditItemImage(', 'pickEditItemImage(this)', 'addEditItemImageUrl(this)') +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
@@ -1702,7 +1711,7 @@
     }
     return '' +
       '<div style="border:1px dashed var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px; margin-top:4px;">' +
-        '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(d.name) + '" oninput="setAddItemField(\'name\', this)" />' +
+        '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(d.name) + '" maxlength="80" oninput="setAddItemField(\'name\', this)" />' +
         '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(d.link) + '" oninput="setAddItemField(\'link\', this)" />' +
         imageManagerHtml(d.imageUrls, 'removeAddItemImage(', 'pickAddItemImage(this)', 'addAddItemImageUrl(this)') +
         '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
@@ -1886,7 +1895,7 @@
           '<div style="border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px;">' +
             '<div style="display:flex; gap:6px; align-items:center;">' +
               '<span style="font-size:11px; font-weight:900; color:var(--text-sub); width:16px;">' + (idx + 1) + '</span>' +
-              '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(it.name) + '" oninput="wizardSetItemField(' + idx + ', \'name\', this)" style="flex:1;" />' +
+              '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(it.name) + '" maxlength="80" oninput="wizardSetItemField(' + idx + ', \'name\', this)" style="flex:1;" />' +
               (w.items.length > 1 ? '<button type="button" class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="removeWizardItem(' + idx + ')">✕</button>' : '') +
             '</div>' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(it.link) + '" oninput="wizardSetItemField(' + idx + ', \'link\', this)" />' +
