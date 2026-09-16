@@ -87,8 +87,12 @@
   .row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .avatar {
     width: 30px; height: 30px; border-radius: 50%; background: #F0EEE7; display: flex; align-items: center;
-    justify-content: center; font-size: 15px; flex-shrink: 0;
+    justify-content: center; font-size: 15px; flex-shrink: 0; overflow: hidden;
   }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar-preset-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .avatar-preset { aspect-ratio: 1; border: none; border-radius: 14px; background: #F0EEE7; font-size: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .avatar-preset.active { background: var(--primary); }
   .owner { font-size: 12px; font-weight: 800; color: var(--text-sub); }
   .dday {
     margin-left: auto; font-size: 11px; font-weight: 900; padding: 3px 9px; border-radius: 999px;
@@ -117,7 +121,8 @@
     font-size: 10px; font-weight: 800; color: #B7B2A8; padding: 4px 0;
   }
   #bottom-nav .nav-btn.active { color: var(--text); }
-  #bottom-nav .nav-btn .ic { font-size: 19px; }
+  #bottom-nav .nav-btn .ic { font-size: 19px; border-radius: 999px; padding: 2px 12px; transition: background-color 0.15s ease; }
+  #bottom-nav .nav-btn.active .ic { background: var(--primary); }
   #fab {
     position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%); width: 54px; height: 54px; border-radius: 50%;
     background: var(--primary); color: var(--primary-text); border: 4px solid var(--bg); font-size: 24px; font-weight: 900;
@@ -368,6 +373,7 @@
     { id: 'flat', label: '플랫 1px 라인' },
     { id: 'bold', label: '볼드 팝' },
   ];
+  var AVATAR_PRESETS = ['😊', '😎', '🤠', '🥳', '😇', '🤓', '👽', '🤖', '🐱', '🐶', '🦊', '🐻', '🐼', '🐰', '🦁', '🐯', '🐨', '🐸', '🦄', '🌟'];
   var CATEGORY_FILTERS = [
     { type: 'all', label: '전체' },
     { type: 'birthday', label: '🎂 생일' },
@@ -413,6 +419,13 @@
     return esc(wish.ownerName) + '님의 위시';
   }
 
+  // 아바타는 원래 이모지 하나였지만, 마이페이지에서 사진으로 바꿀 수 있게 되면서 http(s) URL도
+  // 올 수 있다 - URL이면 <img>로, 아니면 이모지 텍스트 그대로 보여준다.
+  function avatarContentHtml(avatar) {
+    if (avatar && /^https?:\/\//.test(avatar)) return '<img src="' + esc(avatar) + '" />';
+    return esc(avatar || '😊');
+  }
+
   // 단체 위시는 멤버 아바타를 겹쳐서(최대 3개 + 나머지 수) 보여줘 개인 위시와 한눈에 구분되게 한다.
   function wishAvatarHtml(wish, sizePx) {
     var s = sizePx || 30;
@@ -421,12 +434,12 @@
       var members = wish.members || [];
       var shown = members.slice(0, 3);
       var stack = shown.map(function (m, i) {
-        return '<div class="avatar" style="width:' + s + 'px; height:' + s + 'px; font-size:' + fontSize + 'px;' + (i > 0 ? ' margin-left:-10px;' : '') + ' border:2px solid var(--card); flex-shrink:0;">' + m.avatar + '</div>';
+        return '<div class="avatar" style="width:' + s + 'px; height:' + s + 'px; font-size:' + fontSize + 'px;' + (i > 0 ? ' margin-left:-10px;' : '') + ' border:2px solid var(--card); flex-shrink:0;">' + avatarContentHtml(m.avatar) + '</div>';
       }).join('');
       var extra = members.length > 3 ? '<span style="font-size:10px; color:var(--text-sub); font-weight:800; margin-left:4px;">+' + (members.length - 3) + '</span>' : '';
       return '<div style="display:flex; align-items:center;">' + stack + extra + '</div>';
     }
-    return '<div class="avatar" style="width:' + s + 'px; height:' + s + 'px; font-size:' + fontSize + 'px;">' + wish.ownerAvatar + '</div>';
+    return '<div class="avatar" style="width:' + s + 'px; height:' + s + 'px; font-size:' + fontSize + 'px;">' + avatarContentHtml(wish.ownerAvatar) + '</div>';
   }
 
   // 진짜 사용자 신원 없이 - 매 기기(브라우저)마다 랜덤 id를 하나 만들어 localStorage에 고정해두는
@@ -443,7 +456,7 @@
         customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false,
         homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
         chatWishId: null, chatMessages: null, chatDraft: '',
-        imageViewer: null,
+        imageViewer: null, avatarPickerOpen: false,
       },
     };
   }
@@ -1163,6 +1176,28 @@
     }).catch(function (err) { console.warn('[profile sync failed]', err); });
   };
 
+  // ---- 프로필 아이콘(아바타) 수정 - 이모지 캐릭터 고르기 또는 사진 업로드 ----
+  window.openAvatarPicker = function () { state.ui.avatarPickerOpen = true; render(); };
+  window.closeAvatarPicker = function () { state.ui.avatarPickerOpen = false; render(); };
+  window.setProfileAvatar = function (avatar) {
+    state.user.avatar = avatar;
+    state.ui.avatarPickerOpen = false;
+    saveState();
+    render();
+    fetch(API_BASE + '/api/users/' + encodeURIComponent(state.user.id), {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: state.user.name, avatar: avatar }),
+    }).catch(function (err) { console.warn('[profile sync failed]', err); });
+  };
+  window.pickProfileAvatarPhoto = function (inputEl) {
+    var file = inputEl.files && inputEl.files[0];
+    inputEl.value = '';
+    if (!file) return;
+    uploadImageFile(file)
+      .then(function (url) { window.setProfileAvatar(url); })
+      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+  };
+
   // ---- 카카오 로그인 (keongyu와 같은 서버-사이드 authorize 플로우) ----
   // KNOWN LIMITATION: 익명 상태에서 만든 위시는 anon id 소유라, 로그인 후 다른 id로 바뀌면
   // 그 위시들은 더 이상 "내 위시"로 삭제 권한을 못 갖는다 (keongyu의 creator 이름 이관과 달리,
@@ -1296,6 +1331,7 @@
     if (state.ui.chatWishId) html += renderChatPage();
     if (state.ui.createWizard) html += renderCreateWizard();
     if (state.ui.customizeOpen) html += renderCustomizeSheet();
+    if (state.ui.avatarPickerOpen) html += renderAvatarPicker();
     if (state.ui.imageViewer) html += renderImageViewer();
     if (state.ui.toast) html += '<div id="cheer-toast">🔔 ' + esc(state.ui.toast) + '</div>';
     return '<div id="app-frame">' + html + '</div>';
@@ -1422,6 +1458,18 @@
     return Math.floor(h / 24) + '일 전';
   }
 
+  // 마이페이지 프로필 아바타 - 누르면 아이콘(이모지 캐릭터/사진) 바꾸는 시트가 뜬다는 걸
+  // 알 수 있게 카메라 배지를 겹쳐 보여준다.
+  function myAvatarHtml(sizePx) {
+    var s = sizePx;
+    var badge = Math.round(s * 0.34);
+    return '' +
+      '<div onclick="openAvatarPicker()" style="position:relative; width:' + s + 'px; height:' + s + 'px; cursor:pointer; flex-shrink:0;">' +
+        '<div class="avatar" style="width:100%; height:100%; font-size:' + Math.round(s * 0.5) + 'px;">' + avatarContentHtml(state.user.avatar) + '</div>' +
+        '<div style="position:absolute; bottom:-2px; right:-2px; width:' + badge + 'px; height:' + badge + 'px; border-radius:50%; background:var(--primary); display:flex; align-items:center; justify-content:center; font-size:' + Math.round(badge * 0.55) + 'px; border:2px solid var(--card);">📷</div>' +
+      '</div>';
+  }
+
   function renderMyPage() {
     var myGifts = computeMyGiftStats();
     var totalAmount = myGifts.reduce(function (s, g) { return s + g.amount; }, 0);
@@ -1435,8 +1483,8 @@
       : '<div style="font-size:16px; font-weight:900;">' + esc(state.user.name) + '</div>' +
         '<button class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="startEditProfile()">✏️</button>';
     var head = layout === 'avatar'
-      ? '<div style="text-align:center; padding:24px 16px 8px;"><div style="font-size:52px;">' + state.user.avatar + '</div><div style="display:flex; align-items:center; justify-content:center; gap:6px; margin-top:6px;">' + nameBlock + '</div></div>'
-      : '<div style="display:flex; align-items:center; gap:12px; padding:20px 16px 8px;"><div class="avatar" style="width:52px; height:52px; font-size:26px;">' + state.user.avatar + '</div><div style="display:flex; align-items:center; gap:6px;">' + nameBlock + '</div></div>';
+      ? '<div style="text-align:center; padding:24px 16px 8px;">' + myAvatarHtml(72) + '<div style="display:flex; align-items:center; justify-content:center; gap:6px; margin-top:6px;">' + nameBlock + '</div></div>'
+      : '<div style="display:flex; align-items:center; gap:12px; padding:20px 16px 8px;">' + myAvatarHtml(52) + '<div style="display:flex; align-items:center; gap:6px;">' + nameBlock + '</div></div>';
     var kakaoBlock = state.user.provider === 'kakao'
       ? '<div style="display:flex; align-items:center; gap:6px; padding:0 16px 16px;"><span class="chip" style="background:#FEE500; color:#3C1E1E;">💬 카카오 계정</span><button class="chip" onclick="logoutFromKakao()" style="background:none; border:1px solid var(--border); color:var(--text-sub);">로그아웃</button></div>'
       : '<div style="padding:0 16px 16px;"><button onclick="loginWithKakao()" style="width:100%; padding:12px; border:none; border-radius:12px; background:#FEE500; color:#3C1E1E; font-weight:800; font-size:14px; display:flex; align-items:center; justify-content:center; gap:6px;">💬 카카오로 로그인하고 친구에게 알려주기</button></div>';
@@ -1813,7 +1861,7 @@
       var isGroup = w.wishType === 'group';
       var previewOwnerRow = isGroup
         ? '<div class="row-top"><span style="font-size:16px;">👥</span><div class="owner">' + esc(w.groupName || '단체') + ' 위시</div><span class="dday">D-' + w.days + '</span></div>'
-        : '<div class="row-top"><div class="avatar">' + state.user.avatar + '</div><div class="owner">' + esc(state.user.name) + '님의 위시</div><span class="dday">D-' + w.days + '</span></div>';
+        : '<div class="row-top"><div class="avatar">' + avatarContentHtml(state.user.avatar) + '</div><div class="owner">' + esc(state.user.name) + '님의 위시</div><span class="dday">D-' + w.days + '</span></div>';
       var previewItems = w.items.filter(function (i) { return i.name.trim(); });
       var previewGoalSum = previewItems.reduce(function (s, i) { return s + (Math.max(1000, Number(i.goal) || 1000)); }, 0);
       body = '' +
@@ -1867,6 +1915,24 @@
           '<div><div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-bottom:8px;">위시 카드 스타일</div><div class="option-row">' + cardRows + '</div></div>' +
           '<div><div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-bottom:8px;">위젯</div><div class="option-row">' + widgetRows + '</div></div>' +
           '<button class="btn-primary" onclick="closeCustomize()">완료</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderAvatarPicker() {
+    var current = state.user.avatar;
+    var grid = AVATAR_PRESETS.map(function (e) {
+      return '<button type="button" class="avatar-preset' + (current === e ? ' active' : '') + '" onclick="setProfileAvatar(\'' + e + '\')">' + e + '</button>';
+    }).join('');
+    return '' +
+      '<div class="sheet-backdrop" onclick="closeAvatarPicker()">' +
+        '<div class="bottom-sheet" onclick="event.stopPropagation()">' +
+          '<div class="sheet-head"><h2>내 아이콘 바꾸기</h2><button class="icon-btn" onclick="closeAvatarPicker()">✕</button></div>' +
+          '<label style="display:flex; align-items:center; justify-content:center; gap:6px; padding:12px; border:1.5px dashed var(--border); border-radius:14px; cursor:pointer; font-weight:800; font-size:13px; color:var(--text-sub); margin-bottom:14px;">📷 사진으로 설정하기' +
+            '<input type="file" accept="image/*" style="display:none;" onchange="pickProfileAvatarPhoto(this)" />' +
+          '</label>' +
+          '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-bottom:8px;">캐릭터로 고르기</div>' +
+          '<div class="avatar-preset-grid">' + grid + '</div>' +
         '</div>' +
       '</div>';
   }
