@@ -285,7 +285,7 @@
   // "+" 타일(숨긴 <input type="file">을 감싼 label)로 더 추가할 수 있게 한다.
   // removeCallPrefix: 닫는 괄호 앞까지의 호출 문자열 (예: 'removeAddItemImage(' 또는
   // 위저드처럼 인자가 두 개면 'removeWizardItemImage(0, ') - 여기서 인덱스 i와 ')'를 붙여 완성한다.
-  function imageManagerHtml(urls, removeCallPrefix, pickOnchangeCall) {
+  function imageManagerHtml(urls, removeCallPrefix, pickOnchangeCall, addUrlCall) {
     urls = urls || [];
     var thumbs = urls.map(function (url, i) {
       return '<div style="position:relative; width:52px; height:52px; flex-shrink:0;">' +
@@ -298,8 +298,16 @@
           '<input type="file" accept="image/*" style="display:none;" onchange="' + pickOnchangeCall + '" />' +
         '</label>'
       : '';
+    // 상품 사이트에서 이미지 링크만 복사해온 경우(직접 업로드가 아니라)를 위해 URL로도 추가할
+    // 수 있게 남겨둔다 - 업로드 전용으로 바꿨다가 이 경로가 필요하다는 걸 뒤늦게 알았다.
+    var urlRow = urls.length < 5
+      ? '<div style="display:flex; gap:6px; margin-top:6px;">' +
+          '<input type="text" placeholder="또는 이미지 URL 붙여넣기" style="flex:1; font-size:12px; padding:8px 10px;" onkeydown="if(event.key===\'Enter\'){event.preventDefault(); this.nextElementSibling.click();}" />' +
+          '<button type="button" class="btn-ghost" style="width:auto; padding:0 12px; font-size:12px; flex-shrink:0;" onclick="' + addUrlCall + '">추가</button>' +
+        '</div>'
+      : '';
     return '<div style="display:flex; gap:6px; overflow-x:auto; padding:2px 0;">' + thumbs + addTile + '</div>' +
-      '<div style="font-size:10.5px; color:var(--text-sub);">사진 ' + urls.length + '/5</div>';
+      '<div style="font-size:10.5px; color:var(--text-sub);">사진 ' + urls.length + '/5</div>' + urlRow;
   }
 
   var OCCASIONS = [
@@ -709,6 +717,15 @@
     d.imageUrls.splice(idx, 1);
     render();
   };
+  window.addAddItemImageUrl = function (btn) {
+    var input = btn.previousElementSibling;
+    var url = (input.value || '').trim();
+    var d = state.ui.addItemDraft;
+    if (!url || !d) return;
+    if ((d.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
+    d.imageUrls = (d.imageUrls || []).concat([url]);
+    render();
+  };
   window.saveAddItem = function () {
     var d = state.ui.addItemDraft;
     if (!d) return;
@@ -760,6 +777,15 @@
     var d = state.ui.editItemDraft;
     if (!d) return;
     d.imageUrls.splice(idx, 1);
+    render();
+  };
+  window.addEditItemImageUrl = function (btn) {
+    var input = btn.previousElementSibling;
+    var url = (input.value || '').trim();
+    var d = state.ui.editItemDraft;
+    if (!url || !d) return;
+    if ((d.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
+    d.imageUrls = (d.imageUrls || []).concat([url]);
     render();
   };
   window.saveEditItem = function () {
@@ -1069,6 +1095,15 @@
     item.imageUrls.splice(imgIdx, 1);
     render();
   };
+  window.addWizardItemImageUrl = function (idx, btn) {
+    var input = btn.previousElementSibling;
+    var url = (input.value || '').trim();
+    var item = state.ui.createWizard.items[idx];
+    if (!url || !item) return;
+    if ((item.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
+    item.imageUrls = (item.imageUrls || []).concat([url]);
+    render();
+  };
 
   window.wizardSetField = function (field, el) { setStateAtPath('ui.createWizard.' + field, el.value); };
   window.wizardSetStory = function (el) {
@@ -1353,7 +1388,7 @@
         '<div class="logo">🎁 ' + esc(titles[state.ui.tab]) + '</div>' +
         '<div class="actions">' +
           (state.user.provider === 'kakao' ? '' :
-            '<button class="icon-btn" onclick="loginWithKakao()" title="카카오로 로그인" style="background:#FEE500; color:#3C1E1E;">💬</button>') +
+            '<button onclick="loginWithKakao()" title="카카오로 로그인" style="display:flex; align-items:center; gap:4px; height:34px; padding:0 12px; border:none; border-radius:999px; background:#FEE500; color:#3C1E1E; font-weight:800; font-size:12px; white-space:nowrap; flex-shrink:0;">💬 로그인</button>') +
           '<button class="icon-btn" onclick="setTab(\'notif\')" style="position:relative;">🔔' +
             (unread ? '<span style="position:absolute; top:2px; right:3px; width:7px; height:7px; border-radius:50%; background:var(--danger);"></span>' : '') +
           '</button>' +
@@ -1562,7 +1597,7 @@
           '<div style="border:1px dashed var(--border); border-radius:14px; padding:12px; margin-bottom:8px; display:flex; flex-direction:column; gap:6px;" onclick="event.stopPropagation()">' +
             '<input type="text" placeholder="아이템 이름 *" value="' + esc(itemEd.name) + '" oninput="setEditItemField(\'name\', this)" />' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(itemEd.link) + '" oninput="setEditItemField(\'link\', this)" />' +
-            imageManagerHtml(itemEd.imageUrls, 'removeEditItemImage(', 'pickEditItemImage(this)') +
+            imageManagerHtml(itemEd.imageUrls, 'removeEditItemImage(', 'pickEditItemImage(this)', 'addEditItemImageUrl(this)') +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setEditItemField(\'note\', this)">' + esc(itemEd.note) + '</textarea>' +
             '<div style="display:flex; gap:8px;">' +
@@ -1668,7 +1703,7 @@
       '<div style="border:1px dashed var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px; margin-top:4px;">' +
         '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(d.name) + '" oninput="setAddItemField(\'name\', this)" />' +
         '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(d.link) + '" oninput="setAddItemField(\'link\', this)" />' +
-        imageManagerHtml(d.imageUrls, 'removeAddItemImage(', 'pickAddItemImage(this)') +
+        imageManagerHtml(d.imageUrls, 'removeAddItemImage(', 'pickAddItemImage(this)', 'addAddItemImageUrl(this)') +
         '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
         '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setAddItemField(\'note\', this)">' + esc(d.note) + '</textarea>' +
         '<div style="display:flex; gap:8px;">' +
@@ -1854,7 +1889,7 @@
               (w.items.length > 1 ? '<button type="button" class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="removeWizardItem(' + idx + ')">✕</button>' : '') +
             '</div>' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(it.link) + '" oninput="wizardSetItemField(' + idx + ', \'link\', this)" />' +
-            imageManagerHtml(it.imageUrls, 'removeWizardItemImage(' + idx + ',', 'pickWizardItemImage(' + idx + ', this)') +
+            imageManagerHtml(it.imageUrls, 'removeWizardItemImage(' + idx + ',', 'pickWizardItemImage(' + idx + ', this)', 'addWizardItemImageUrl(' + idx + ', this)') +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(it.goal) + '" oninput="wizardSetItemField(' + idx + ', \'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="wizardSetItemField(' + idx + ', \'note\', this)">' + esc(it.note) + '</textarea>' +
           '</div>';
