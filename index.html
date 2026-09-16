@@ -696,6 +696,22 @@
         showToast('수정에 실패했어요. 다시 시도해주세요.');
       });
   };
+  // 공개/비공개 스위치 - 편집 폼을 열지 않고 위시 상세에서 바로 켜고 끌 수 있게 별도로 뺐다.
+  window.toggleWishPrivate = function (wishId, current) {
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    if (wish) wish.isPrivate = !current;
+    render();
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/visibility', {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user_id: state.user.id, is_private: !current }),
+    })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('visibility failed')); })
+      .catch(function () {
+        if (wish) wish.isPrivate = current;
+        render();
+        showToast('변경에 실패했어요. 다시 시도해주세요.');
+      });
+  };
 
   // ---- 위시에 아이템 나중에 추가하기 (만든 사람만) ----
   window.startAddItem = function (wishId) {
@@ -1073,7 +1089,7 @@
   }
   window.openCreateWizard = function () {
     closeTopLevelOverlays();
-    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [] };
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [], isPrivate: false };
     render();
   };
   window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
@@ -1155,6 +1171,7 @@
   };
 
   window.wizardSetField = function (field, el) { setStateAtPath('ui.createWizard.' + field, el.value); };
+  window.toggleWizardPrivate = function () { state.ui.createWizard.isPrivate = !state.ui.createWizard.isPrivate; render(); };
   window.wizardSetStory = function (el) {
     var w = state.ui.createWizard;
     w.story = el.value;
@@ -1223,7 +1240,7 @@
         owner_id: state.user.id, owner_name: state.user.name, owner_avatar: state.user.avatar,
         type: isGroup ? 'group' : 'personal', group_name: isGroup ? w.groupName.trim() : '',
         title: w.title.trim(), subtitle: w.subtitle.trim(), story: w.story.trim(), emoji: w.emoji, category: w.occasion,
-        items: items, deadline: addDays(Math.max(1, Number(w.days) || 14)),
+        items: items, deadline: addDays(Math.max(1, Number(w.days) || 14)), is_private: !!w.isPrivate,
       }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
@@ -1506,7 +1523,7 @@
           ddayBadge(wish.deadline) +
           followBtn +
         '</div>' +
-        '<div class="title">' + wish.emoji + ' ' + esc(wish.title) + '</div>' +
+        '<div class="title">' + wish.emoji + ' ' + esc(wish.title) + (wish.isPrivate ? ' 🔒' : '') + '</div>' +
         '<div class="subtitle">' + esc(wish.subtitle) + '</div>' +
         '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div><div class="gauge-tick"></div></div>' +
         '<div class="stat-row"><span class="pct">' + pct + '% 달성' + (backers ? ' · 🎉 ' + backers + '명 참여' : '') + '</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
@@ -1741,10 +1758,15 @@
     // 단체 위시는 초대 링크로 서로를 불러야 하고, 개인 위시도 카카오톡 공유는 그대로 유용하다
     // (선물 받고 싶은 위시를 친구에게 알리는 용도) - 위시 종류와 무관하게 항상 보여준다.
     // 위시 전체 수정/삭제 버튼은 아이템별 수정/삭제(✏️/🗑️)가 생기면서 뺐다 - 사용자 요청.
+    // 비공개면 어차피 남이 못 보니 초대/공유 버튼은 의미가 없어져서(눌러도 상대방 화면엔
+    // 아무것도 안 뜸) 헷갈리지 않게 아예 숨긴다.
     var ownerActions = isMine ? '' +
-      '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 공유하기</button>' +
-      '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 링크 복사</button>' +
-      '<button class="btn-ghost" style="margin-top:4px;" onclick="sendWishUpdate(\'' + wish.id + '\')">📣 후원자들에게 업데이트 보내기</button>'
+      '<div class="option-item' + (wish.isPrivate ? ' active' : '') + '" onclick="toggleWishPrivate(\'' + wish.id + '\', ' + (wish.isPrivate ? 'true' : 'false') + ')"><span>🔒 나만 보기 (비공개)</span><button class="toggle' + (wish.isPrivate ? ' on' : '') + '"></button></div>' +
+      (!wish.isPrivate ? '' +
+        '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 공유하기</button>' +
+        '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 링크 복사</button>' +
+        '<button class="btn-ghost" style="margin-top:4px;" onclick="sendWishUpdate(\'' + wish.id + '\')">📣 후원자들에게 업데이트 보내기</button>'
+        : '')
       : '';
 
     var editForm = editing ? '' +
@@ -1763,7 +1785,7 @@
 
     return '' +
       '<div class="detail-page">' +
-        '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><div style="display:flex; gap:4px; flex-shrink:0;">' +
+        '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + (wish.isPrivate ? ' 🔒' : '') + '</h2><div style="display:flex; gap:4px; flex-shrink:0;">' +
           (isMine && !editing ? '<button class="icon-btn" onclick="startEditWish(\'' + wish.id + '\')">✏️</button>' : '') +
           '<button class="icon-btn" onclick="toggleFollow(\'' + wish.id + '\', ' + (wish.following ? 'true' : 'false') + ')">' + (wish.following ? '❤️' : '🤍') + '</button>' +
         '</div></div>' +
@@ -1991,6 +2013,7 @@
         '<input type="text" placeholder="위시 제목 * (예: 마라톤 대회 참가)" value="' + esc(w.title) + '" oninput="wizardSetField(\'title\', this)" />' +
         '<input type="text" placeholder="한 줄 소개" value="' + esc(w.subtitle) + '" oninput="wizardSetField(\'subtitle\', this)" />' +
         '<input type="number" placeholder="며칠 후 마감" value="' + esc(w.days) + '" oninput="wizardSetField(\'days\', this)" />' +
+        '<div class="option-item' + (w.isPrivate ? ' active' : '') + '" onclick="toggleWizardPrivate()"><span>🔒 나만 보기 (비공개)</span><button class="toggle' + (w.isPrivate ? ' on' : '') + '"></button></div>' +
         '<textarea id="wizard-story-input" rows="3" placeholder="희망하는 이유를 들려주세요 (예: 우승을 위한 위시 리스트예요! 여행, 마라톤, 카메라, 커피 등 키워드를 넣으면 추천 아이템도 떠요)" oninput="wizardSetStory(this)">' + esc(w.story) + '</textarea>' +
         (w.suggestedItems.length ? '<div style="display:flex; flex-wrap:wrap; gap:6px;">' + w.suggestedItems.map(function (it) { return '<button type="button" class="suggest-chip" onclick="applySuggestion(\'' + esc(it) + '\')">+ ' + esc(it) + '</button>'; }).join('') + '</div>' : '') +
         '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">🎁 위시 아이템 목록</div>' +

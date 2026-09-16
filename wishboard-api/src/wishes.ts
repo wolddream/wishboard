@@ -13,6 +13,7 @@ interface WishRow {
 	emoji: string | null;
 	category: string | null;
 	deadline: string;
+	is_private: number;
 	created_at: string;
 }
 interface MemberRow {
@@ -73,6 +74,7 @@ function wishRowToClient(
 		currentAmount,
 		followerCount,
 		following,
+		isPrivate: !!row.is_private,
 		deadline: row.deadline,
 		createdAt: row.created_at,
 		items: items.map((i) => ({
@@ -98,18 +100,36 @@ function wishRowToClient(
 }
 
 export async function handleGetWishes(env: Env, userId?: string | null): Promise<Response> {
+	// owner_name/owner_avatar는 위시를 만들 당시의 스냅샷이라, 나중에 마이페이지에서 이름/아이콘을
+	// 바꿔도 이미 만든 위시엔 반영이 안 됐다 - users 테이블(최신 정보)을 LEFT JOIN해서 있으면
+	// 그 값을 우선 쓰고, 없으면(이론상 없을 일 없지만 방어적으로) 스냅샷으로 fallback한다.
+	// 비공개(is_private) 위시는 만든 사람 본인에게만 보인다 - 전체가 하나의 공유 피드라는
+	// 원칙의 유일한 예외라, 여기 한 곳에서만 걸러주면 된다(다른 사람 화면엔 아예 안 실려 온다).
 	const { results: wishRows } = await env.DB.prepare(
-		`SELECT id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category,
-		        deadline, created_at
-		 FROM wishes ORDER BY created_at DESC LIMIT 200`
-	).all<WishRow>();
+		`SELECT w.id as id, w.owner_id as owner_id, COALESCE(u.name, w.owner_name) as owner_name,
+		        COALESCE(u.avatar, w.owner_avatar) as owner_avatar, w.type as type, w.group_name as group_name,
+		        w.title as title, w.subtitle as subtitle, w.story as story, w.emoji as emoji, w.category as category,
+		        w.deadline as deadline, w.is_private as is_private, w.created_at as created_at
+		 FROM wishes w
+		 LEFT JOIN users u ON u.id = w.owner_id
+		 WHERE w.is_private = 0 OR w.owner_id = ?
+		 ORDER BY w.created_at DESC LIMIT 200`
+	)
+		.bind(userId || "")
+		.all<WishRow>();
 
 	if (wishRows.length === 0) return json({ wishes: [] });
 	const ids = wishRows.map((w) => w.id);
 	const placeholders = ids.map(() => "?").join(",");
 
 	const [{ results: memberRows }, { results: contribRows }, { results: itemRows }, { results: followCountRows }, { results: myFollowRows }] = await Promise.all([
-		env.DB.prepare(`SELECT wish_id, user_id, user_name, user_avatar FROM wish_members WHERE wish_id IN (${placeholders})`)
+		env.DB.prepare(
+			`SELECT wm.wish_id as wish_id, wm.user_id as user_id, COALESCE(u.name, wm.user_name) as user_name,
+			        COALESCE(u.avatar, wm.user_avatar) as user_avatar
+			 FROM wish_members wm
+			 LEFT JOIN users u ON u.id = wm.user_id
+			 WHERE wm.wish_id IN (${placeholders})`
+		)
 			.bind(...ids)
 			.all<MemberRow>(),
 		env.DB.prepare(`SELECT id, wish_id, item_id, from_user_id, from_name, amount, message, anonymous, created_at FROM contributions WHERE wish_id IN (${placeholders}) ORDER BY created_at DESC`)
@@ -174,6 +194,7 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 		emoji?: string;
 		category?: string;
 		deadline?: string;
+		is_private?: boolean;
 		items?: Array<{ name?: string; link?: string; image_urls?: string[]; note?: string; goal_amount?: number }>;
 	};
 	const items = (body.items || []).filter((i) => i && i.name && i.name.trim() && Number(i.goal_amount) >= 1000);
@@ -193,8 +214,8 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 
 	const statements = [
 		env.DB.prepare(
-			`INSERT INTO wishes (id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category, goal_amount, current_amount, deadline)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+			`INSERT INTO wishes (id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category, goal_amount, current_amount, deadline, is_private)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
 		).bind(
 			wishId,
 			body.owner_id,
@@ -208,7 +229,8 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 			body.emoji || "🎁",
 			body.category || "",
 			totalGoal,
-			body.deadline
+			body.deadline,
+			body.is_private ? 1 : 0
 		),
 	];
 	items.forEach((item, idx) => {
@@ -280,6 +302,21 @@ export async function handlePatchWish(request: Request, env: Env, wishId: string
 
 	await env.DB.prepare(`UPDATE wishes SET title = ?, subtitle = ?, story = ?, deadline = ? WHERE id = ?`)
 		.bind(body.title, body.subtitle || "", body.story || "", body.deadline, wishId)
+		.run();
+
+	return json({ ok: true });
+}
+
+// 공개/비공개 토글 - 편집 폼 전체를 열지 않고 위시 상세에서 스위치 하나로 바로 켜고 끌 수
+// 있게 별도 엔드포인트로 뺐다.
+export async function handleSetWishVisibility(request: Request, env: Env, wishId: string): Promise<Response> {
+	const body = (await request.json()) as { user_id?: string; is_private?: boolean };
+	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== body.user_id) return json({ error: "권한이 없어요" }, 403);
+
+	await env.DB.prepare(`UPDATE wishes SET is_private = ? WHERE id = ?`)
+		.bind(body.is_private ? 1 : 0, wishId)
 		.run();
 
 	return json({ ok: true });

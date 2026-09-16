@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS wishes (
   goal_amount INTEGER NOT NULL,
   current_amount INTEGER NOT NULL DEFAULT 0,
   deadline TEXT NOT NULL, -- YYYY-MM-DD
+  is_private INTEGER NOT NULL DEFAULT 0, -- 1이면 만든 사람 본인에게만 보인다(전체 피드 목록에서 제외)
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_wishes_created ON wishes(created_at);

@@ -7,6 +7,7 @@
  *   POST   /api/wishes                 -> create a wish (personal or group)
  *   DELETE /api/wishes/:id?user_id=    -> delete a wish (owner or group member only)
  *   PATCH  /api/wishes/:id             -> edit a wish's content (owner only)
+ *   PATCH  /api/wishes/:id/visibility  -> toggle a wish's is_private flag (owner only) - private wishes are hidden from GET /api/wishes for everyone else
  *   POST   /api/wishes/:id/items       -> add a new item to an existing wish (owner only)
  *   PATCH  /api/wishes/:id/items/:itemId -> edit one item (owner only, goal can't drop below what's raised)
  *   DELETE /api/wishes/:id/items/:itemId?user_id= -> delete one item (owner only; blocked if it has gifts, or is the last item)
@@ -37,6 +38,9 @@
  * `wrangler r2 bucket create wishboard-images` before this deploys; no public-access toggle needed,
  * this worker serves uploaded images itself via GET /r2/:key)
  *
+ * DB MIGRATION NEEDED before this deploys: `ALTER TABLE wishes ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;`
+ * (run once against the live D1 database - schema.sql is only applied on fresh setup, not on every deploy)
+ *
  * No real session auth: every endpoint trusts whatever user_id/name/avatar the client sends,
  * same trust model as keongyu-api. "친구" 관계 테이블은 없다 - keongyu의 공개 라우트 피드처럼,
  * 위시도 전체가 하나의 공유 피드다. Kakao login just picks the trusted user_id for the client
@@ -44,7 +48,7 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleRejectGift, handleThankGift, handlePostWishUpdate, handleJoinWish, handleFollowWish, handleUnfollowWish, handleDdaySoonCron } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleSetWishVisibility, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleRejectGift, handleThankGift, handlePostWishUpdate, handleJoinWish, handleFollowWish, handleUnfollowWish, handleDdaySoonCron } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead, handleDeleteNotification, handleDeleteAllNotifications } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
@@ -73,6 +77,10 @@ export default {
 			}
 			if (segments[0] === "api" && segments[1] === "wishes" && segments.length === 3 && request.method === "PATCH") {
 				return cors(await handlePatchWish(request, env, segments[2]));
+			}
+			// /api/wishes/:id/visibility (공개/비공개 토글)
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "visibility" && request.method === "PATCH") {
+				return cors(await handleSetWishVisibility(request, env, segments[2]));
 			}
 			// /api/wishes/:id/items
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "items" && segments.length === 4 && request.method === "POST") {
