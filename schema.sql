@@ -94,3 +94,13 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_chat_thread ON chat_messages(wish_id, peer_id, created_at);
+
+-- 위시 하나를 여러 사람이 "관심" 등록(찜/구독)할 수 있다 - 내가 만들지 않은 위시라도 마이페이지에
+-- 모아보고 싶을 때 쓴다. 단순 다대다 관계라 별도 알림은 안 붙인다(그건 별개 기능).
+CREATE TABLE IF NOT EXISTS wish_follows (
+  wish_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (wish_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wish_follows_user ON wish_follows(user_id);

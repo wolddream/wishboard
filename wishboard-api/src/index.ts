@@ -12,6 +12,8 @@
  *   DELETE /api/wishes/:id/items/:itemId?user_id= -> delete one item (owner only; blocked if it has gifts, or is the last item)
  *   POST   /api/wishes/:id/gift        -> send a contribution (server caps at item's goal, fans out notifications)
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
+ *   POST   /api/wishes/:id/follow      -> follow/favorite a wish
+ *   DELETE /api/wishes/:id/follow?user_id= -> unfollow a wish
  *   GET    /api/wishes/:id/chat?peer_id=       -> a 1:1 chat thread's messages
  *   POST   /api/wishes/:id/chat                -> send a chat message (owner replies need peer_id; others reply as themselves)
  *   DELETE /api/wishes/:id/chat/:messageId?user_id= -> delete a message you sent
@@ -31,7 +33,7 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleJoinWish } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleJoinWish, handleFollowWish, handleUnfollowWish } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
@@ -48,7 +50,7 @@ export default {
 
 		try {
 			if (url.pathname === "/api/wishes" && request.method === "GET") {
-				return cors(await handleGetWishes(env));
+				return cors(await handleGetWishes(env, url.searchParams.get("user_id")));
 			}
 			if (url.pathname === "/api/wishes" && request.method === "POST") {
 				return cors(await handlePostWish(request, env));
@@ -78,6 +80,13 @@ export default {
 			// /api/wishes/:id/join
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "join" && request.method === "POST") {
 				return cors(await handleJoinWish(request, env, segments[2]));
+			}
+			// /api/wishes/:id/follow
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "follow" && request.method === "POST") {
+				return cors(await handleFollowWish(request, env, segments[2]));
+			}
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "follow" && request.method === "DELETE") {
+				return cors(await handleUnfollowWish(request, env, segments[2]));
 			}
 			// /api/wishes/:id/chat/threads (owner-only thread list) - must be checked before the plainer /chat route
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments[4] === "threads" && request.method === "GET") {

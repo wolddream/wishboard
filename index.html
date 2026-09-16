@@ -424,7 +424,7 @@
   // D1)가 정답이다. keongyu가 겪은 "fire-and-forget로 쐈다가 실패해도 모름" 실수를 반복하지
   // 않도록, 여기서는 await로 서버 응답을 확인한 뒤에만 로컬 상태를 반영한다.
   function syncWishesFromServer() {
-    return fetch(API_BASE + '/api/wishes')
+    return fetch(API_BASE + '/api/wishes?user_id=' + encodeURIComponent(state.user.id))
       .then(function (res) { return res.ok ? res.json() : { wishes: [] }; })
       .then(function (data) {
         state.wishes = data.wishes || [];
@@ -793,6 +793,22 @@
         showToast('메시지 전송에 실패했어요.');
         render();
       });
+  };
+
+  // 위시 관심(찜) 등록/해제 - 누구나 할 수 있고, 서버 응답을 기다린 뒤 목록을 다시 받아온다
+  // (낙관적 업데이트 없이 서버가 최종 진실이라는 이 앱의 다른 액션들과 같은 원칙).
+  window.toggleFollow = function (wishId, isFollowing) {
+    var method = isFollowing ? 'DELETE' : 'POST';
+    var url = API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/follow' + (isFollowing ? '?user_id=' + encodeURIComponent(state.user.id) : '');
+    var opts = { method: method };
+    if (!isFollowing) {
+      opts.headers = { 'content-type': 'application/json' };
+      opts.body = JSON.stringify({ user_id: state.user.id });
+    }
+    fetch(url, opts)
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('follow toggle failed')); })
+      .then(function () { syncWishesFromServer(); })
+      .catch(function () { showToast('처리에 실패했어요. 다시 시도해주세요.'); });
   };
 
   // 위시 공유 링크 - 단체 위시는 "?join=" 링크(받은 사람이 그 링크로 스스로 합류), 개인 위시는
@@ -1226,6 +1242,10 @@
   function wishCardHtml(wish) {
     var pct = wish.goalAmount > 0 ? Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100)) : 0;
     var cardCls = 'wish-card style-' + state.customization.cardStyle;
+    var followBtn = '' +
+      '<button class="icon-btn" style="width:26px; height:26px; font-size:13px; flex-shrink:0;" onclick="event.stopPropagation(); toggleFollow(\'' + wish.id + '\', ' + (wish.following ? 'true' : 'false') + ')">' +
+        (wish.following ? '❤️' : '🤍') +
+      '</button>';
     return '' +
       '<div class="' + cardCls + '" onclick="openWishDetail(\'' + wish.id + '\')">' +
         '<div class="row-top">' +
@@ -1233,6 +1253,7 @@
           '<div class="owner">' + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + '</div>' +
           gaugeRingHtml(pct) +
           ddayBadge(wish.deadline) +
+          followBtn +
         '</div>' +
         '<div class="title">' + wish.emoji + ' ' + esc(wish.title) + '</div>' +
         '<div class="subtitle">' + esc(wish.subtitle) + '</div>' +
@@ -1310,13 +1331,17 @@
       '</div>';
     var myWishSection = '<div style="padding:0 16px 6px; font-size:13px; font-weight:900;">내 위시 (' + myWishes.length + ')</div>' +
       (myWishes.length ? myWishes.map(wishCardHtml).join('') : '<div class="empty-state">아직 만든 위시가 없어요<br/>홈에서 + 버튼을 눌러보세요</div>');
+    var followedWishes = state.wishes.filter(function (w) { return w.following; });
+    var followedSection = followedWishes.length
+      ? '<div style="padding:14px 16px 6px; font-size:13px; font-weight:900;">❤️ 관심 위시 (' + followedWishes.length + ')</div>' + followedWishes.map(wishCardHtml).join('')
+      : '';
     var historyRows = myGifts.length
       ? myGifts.slice(0, 20).map(function (g) {
           return '<div class="cheer-item" style="padding:9px 16px;"><span class="who">' + esc(g.toName) + '님께</span><span class="msg">' + esc(g.wishTitle) + '</span><span class="amt">' + formatWon(g.amount) + '</span></div>';
         }).join('')
       : '';
     var historySection = myGifts.length ? '<div style="padding:14px 0 4px 16px; font-size:13px; font-weight:900;">보낸 선물 히스토리</div>' + historyRows : '';
-    return head + kakaoBlock + statCards + myWishSection + historySection;
+    return head + kakaoBlock + statCards + myWishSection + followedSection + historySection;
   }
 
   function renderBottomNav() {
@@ -1440,7 +1465,8 @@
 
     return '' +
       '<div class="detail-page">' +
-        '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><span style="width:34px;"></span></div>' +
+        '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><button class="icon-btn" onclick="toggleFollow(\'' + wish.id + '\', ' + (wish.following ? 'true' : 'false') + ')">' + (wish.following ? '❤️' : '🤍') + '</button></div>' +
+        (wish.followerCount ? '<div style="font-size:11px; color:var(--text-sub); text-align:right; margin-top:-8px;">❤️ ' + wish.followerCount + '명이 관심 등록했어요</div>' : '') +
         '<div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-sub);">' + wishAvatarHtml(wish, 26) + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + ' · ' + ddayBadge(wish.deadline) + '</div>' +
         (editing ? editForm : '' +
           (wish.story ? '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💭 희망하는 이유</div><div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">' + esc(wish.story) + '</div>' : '') +

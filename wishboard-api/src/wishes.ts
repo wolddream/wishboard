@@ -46,7 +46,14 @@ interface ContributionRow {
 // 위시 하나 = 아이템 여러 개로 이루어진 "위시 리스트"(예: 마라톤 대회 참가 위시 안에 런닝화,
 // 유니폼 두 아이템). 목표/모금액은 전부 아이템 단위로 매겨지므로, 위시 카드에 보이는 전체
 // 진행률은 매번 아이템들의 합계로 계산한다(wishes 테이블엔 별도로 저장/동기화하지 않는다).
-function wishRowToClient(row: WishRow, members: MemberRow[], contributions: ContributionRow[], items: ItemRow[]) {
+function wishRowToClient(
+	row: WishRow,
+	members: MemberRow[],
+	contributions: ContributionRow[],
+	items: ItemRow[],
+	followerCount: number,
+	following: boolean
+) {
 	const goalAmount = items.reduce((s, i) => s + i.goal_amount, 0);
 	const currentAmount = items.reduce((s, i) => s + i.current_amount, 0);
 	return {
@@ -64,6 +71,8 @@ function wishRowToClient(row: WishRow, members: MemberRow[], contributions: Cont
 		category: row.category || "",
 		goalAmount,
 		currentAmount,
+		followerCount,
+		following,
 		deadline: row.deadline,
 		createdAt: row.created_at,
 		items: items.map((i) => ({
@@ -88,7 +97,7 @@ function wishRowToClient(row: WishRow, members: MemberRow[], contributions: Cont
 	};
 }
 
-export async function handleGetWishes(env: Env): Promise<Response> {
+export async function handleGetWishes(env: Env, userId?: string | null): Promise<Response> {
 	const { results: wishRows } = await env.DB.prepare(
 		`SELECT id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category,
 		        deadline, created_at
@@ -99,7 +108,7 @@ export async function handleGetWishes(env: Env): Promise<Response> {
 	const ids = wishRows.map((w) => w.id);
 	const placeholders = ids.map(() => "?").join(",");
 
-	const [{ results: memberRows }, { results: contribRows }, { results: itemRows }] = await Promise.all([
+	const [{ results: memberRows }, { results: contribRows }, { results: itemRows }, { results: followCountRows }, { results: myFollowRows }] = await Promise.all([
 		env.DB.prepare(`SELECT wish_id, user_id, user_name, user_avatar FROM wish_members WHERE wish_id IN (${placeholders})`)
 			.bind(...ids)
 			.all<MemberRow>(),
@@ -109,6 +118,14 @@ export async function handleGetWishes(env: Env): Promise<Response> {
 		env.DB.prepare(`SELECT id, wish_id, name, link, image_url, note, goal_amount, current_amount FROM wish_items WHERE wish_id IN (${placeholders}) ORDER BY sort_order, created_at`)
 			.bind(...ids)
 			.all<ItemRow>(),
+		env.DB.prepare(`SELECT wish_id, COUNT(*) as c FROM wish_follows WHERE wish_id IN (${placeholders}) GROUP BY wish_id`)
+			.bind(...ids)
+			.all<{ wish_id: string; c: number }>(),
+		userId
+			? env.DB.prepare(`SELECT wish_id FROM wish_follows WHERE user_id = ? AND wish_id IN (${placeholders})`)
+					.bind(userId, ...ids)
+					.all<{ wish_id: string }>()
+			: Promise.resolve({ results: [] as Array<{ wish_id: string }> }),
 	]);
 
 	const membersByWish = new Map<string, MemberRow[]>();
@@ -126,8 +143,20 @@ export async function handleGetWishes(env: Env): Promise<Response> {
 		if (!itemsByWish.has(i.wish_id)) itemsByWish.set(i.wish_id, []);
 		itemsByWish.get(i.wish_id)!.push(i);
 	}
+	const followCountByWish = new Map<string, number>();
+	for (const f of followCountRows) followCountByWish.set(f.wish_id, f.c);
+	const myFollowSet = new Set(myFollowRows.map((f) => f.wish_id));
 
-	const wishes = wishRows.map((w) => wishRowToClient(w, membersByWish.get(w.id) || [], contribByWish.get(w.id) || [], itemsByWish.get(w.id) || []));
+	const wishes = wishRows.map((w) =>
+		wishRowToClient(
+			w,
+			membersByWish.get(w.id) || [],
+			contribByWish.get(w.id) || [],
+			itemsByWish.get(w.id) || [],
+			followCountByWish.get(w.id) || 0,
+			myFollowSet.has(w.id)
+		)
+	);
 	return json({ wishes });
 }
 
@@ -223,6 +252,7 @@ export async function handleDeleteWish(request: Request, env: Env, wishId: strin
 		env.DB.prepare(`DELETE FROM wish_items WHERE wish_id = ?`).bind(wishId),
 		env.DB.prepare(`DELETE FROM contributions WHERE wish_id = ?`).bind(wishId),
 		env.DB.prepare(`DELETE FROM chat_messages WHERE wish_id = ?`).bind(wishId),
+		env.DB.prepare(`DELETE FROM wish_follows WHERE wish_id = ?`).bind(wishId),
 	]);
 	return json({ ok: true });
 }
@@ -336,6 +366,23 @@ export async function handleJoinWish(request: Request, env: Env, wishId: string)
 	)
 		.bind(wishId, body.user_id, body.user_name || body.user_id, body.user_avatar || "😊")
 		.run();
+	return json({ ok: true });
+}
+
+// 위시 "관심" 등록/해제(찜) - 누구나(만든 사람 포함) 할 수 있고 owner 권한 확인이 필요 없다.
+export async function handleFollowWish(request: Request, env: Env, wishId: string): Promise<Response> {
+	const body = (await request.json()) as { user_id?: string };
+	if (!body.user_id) return json({ error: "user_id is required" }, 400);
+	const wish = await env.DB.prepare(`SELECT id FROM wishes WHERE id = ?`).bind(wishId).first();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	await env.DB.prepare(`INSERT INTO wish_follows (wish_id, user_id) VALUES (?, ?) ON CONFLICT(wish_id, user_id) DO NOTHING`).bind(wishId, body.user_id).run();
+	return json({ ok: true });
+}
+
+export async function handleUnfollowWish(request: Request, env: Env, wishId: string): Promise<Response> {
+	const userId = new URL(request.url).searchParams.get("user_id") || "";
+	if (!userId) return json({ error: "user_id is required" }, 400);
+	await env.DB.prepare(`DELETE FROM wish_follows WHERE wish_id = ? AND user_id = ?`).bind(wishId, userId).run();
 	return json({ ok: true });
 }
 
