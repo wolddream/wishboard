@@ -154,6 +154,15 @@
     position: fixed; inset: 0; z-index: 110; background: var(--bg); overflow-y: auto;
     display: flex; flex-direction: column; gap: 14px; padding: 14px 18px calc(18px + env(safe-area-inset-bottom));
   }
+  /* 아이템 사진 크게 보기 - 핀치줌/드래그팬은 render()를 안 거치고 JS로 transform을 직접
+     건드리므로(재렌더가 제스처 중간에 DOM을 갈아치우면 끊긴다), transition 없이 즉시 반응한다. */
+  #image-viewer { position: fixed; inset: 0; z-index: 400; background: rgba(10,9,7,0.94); display: flex; flex-direction: column; }
+  #image-viewer-stage { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; touch-action: none; }
+  #image-viewer-img { max-width: 100%; max-height: 100%; user-select: none; -webkit-user-drag: none; }
+  .iv-nav {
+    position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 50%;
+    background: rgba(255,255,255,0.14); border: none; color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
   textarea, input[type="text"], input[type="number"] {
     width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 13.5px;
     background: #fff; color: var(--text);
@@ -261,12 +270,25 @@
       });
     });
   }
-  // 이미지 URL 입력칸 옆에 붙는 "사진 선택" 버튼 - <input type="file">을 숨기고 label로 감싸서
-  // 클릭하면 그 파일 선택창이 뜨게 하는 표준 패턴.
-  function imagePickerButtonHtml(onchangeCall) {
-    return '<label class="btn-ghost" style="display:inline-flex; align-items:center; justify-content:center; padding:0 12px; white-space:nowrap; cursor:pointer; flex-shrink:0;">📷 사진 선택' +
-      '<input type="file" accept="image/*" style="display:none;" onchange="' + onchangeCall + '" />' +
-    '</label>';
+  // 아이템 사진 최대 5장 관리 UI - 이미 올린 사진은 작은 썸네일 + 삭제(✕) 버튼으로, 5장 미만이면
+  // "+" 타일(숨긴 <input type="file">을 감싼 label)로 더 추가할 수 있게 한다.
+  // removeCallPrefix: 닫는 괄호 앞까지의 호출 문자열 (예: 'removeAddItemImage(' 또는
+  // 위저드처럼 인자가 두 개면 'removeWizardItemImage(0, ') - 여기서 인덱스 i와 ')'를 붙여 완성한다.
+  function imageManagerHtml(urls, removeCallPrefix, pickOnchangeCall) {
+    urls = urls || [];
+    var thumbs = urls.map(function (url, i) {
+      return '<div style="position:relative; width:52px; height:52px; flex-shrink:0;">' +
+        '<img src="' + esc(url) + '" style="width:100%; height:100%; border-radius:10px; object-fit:cover; background:#F0EEE7;" />' +
+        '<button type="button" onclick="' + removeCallPrefix + i + ')" style="position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%; border:none; background:rgba(0,0,0,0.6); color:#fff; font-size:10px; line-height:18px; padding:0; cursor:pointer;">✕</button>' +
+      '</div>';
+    }).join('');
+    var addTile = urls.length < 5
+      ? '<label style="width:52px; height:52px; flex-shrink:0; border:1.5px dashed var(--border); border-radius:10px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:18px; color:var(--text-sub);">+' +
+          '<input type="file" accept="image/*" style="display:none;" onchange="' + pickOnchangeCall + '" />' +
+        '</label>'
+      : '';
+    return '<div style="display:flex; gap:6px; overflow-x:auto; padding:2px 0;">' + thumbs + addTile + '</div>' +
+      '<div style="font-size:10.5px; color:var(--text-sub);">사진 ' + urls.length + '/5</div>';
   }
 
   var OCCASIONS = [
@@ -421,6 +443,7 @@
         customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false,
         homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
         chatWishId: null, chatMessages: null, chatDraft: '',
+        imageViewer: null,
       },
     };
   }
@@ -526,6 +549,7 @@
     newScrollables.forEach(function (el, i) {
       if (savedScroll[i]) { el.scrollTop = savedScroll[i].top; el.scrollLeft = savedScroll[i].left; }
     });
+    if (state.ui.imageViewer) attachImageViewerGestures();
   }
 
   function showToast(text) {
@@ -645,7 +669,7 @@
 
   // ---- 위시에 아이템 나중에 추가하기 (만든 사람만) ----
   window.startAddItem = function (wishId) {
-    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrl: '', note: '', goal: '' };
+    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrls: [], note: '', goal: '' };
     render();
   };
   window.cancelAddItem = function () { state.ui.addItemDraft = null; render(); };
@@ -653,10 +677,18 @@
   window.pickAddItemImage = function (inputEl) {
     var file = inputEl.files && inputEl.files[0];
     inputEl.value = '';
-    if (!file || !state.ui.addItemDraft) return;
+    var d = state.ui.addItemDraft;
+    if (!file || !d) return;
+    if ((d.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
     uploadImageFile(file)
-      .then(function (url) { state.ui.addItemDraft.imageUrl = url; render(); })
+      .then(function (url) { d.imageUrls = (d.imageUrls || []).concat([url]); render(); })
       .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+  };
+  window.removeAddItemImage = function (idx) {
+    var d = state.ui.addItemDraft;
+    if (!d) return;
+    d.imageUrls.splice(idx, 1);
+    render();
   };
   window.saveAddItem = function () {
     var d = state.ui.addItemDraft;
@@ -669,7 +701,7 @@
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
     })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('add item failed')); })
       .then(function () {
@@ -690,7 +722,7 @@
     var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
     var item = wish && (wish.items || []).filter(function (i) { return i.id === itemId; })[0];
     if (!item) return;
-    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrl: item.imageUrl, note: item.note, goal: item.goalAmount };
+    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrls: (item.imageUrls || []).slice(), note: item.note, goal: item.goalAmount };
     render();
   };
   window.cancelEditItem = function () { state.ui.editItemDraft = null; render(); };
@@ -698,10 +730,18 @@
   window.pickEditItemImage = function (inputEl) {
     var file = inputEl.files && inputEl.files[0];
     inputEl.value = '';
-    if (!file || !state.ui.editItemDraft) return;
+    var d = state.ui.editItemDraft;
+    if (!file || !d) return;
+    if ((d.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
     uploadImageFile(file)
-      .then(function (url) { state.ui.editItemDraft.imageUrl = url; render(); })
+      .then(function (url) { d.imageUrls = (d.imageUrls || []).concat([url]); render(); })
       .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+  };
+  window.removeEditItemImage = function (idx) {
+    var d = state.ui.editItemDraft;
+    if (!d) return;
+    d.imageUrls.splice(idx, 1);
+    render();
   };
   window.saveEditItem = function () {
     var d = state.ui.editItemDraft;
@@ -714,7 +754,7 @@
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items/' + encodeURIComponent(d.itemId), {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_url: (d.imageUrl || '').trim(), note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
       .then(function (result) {
@@ -924,11 +964,22 @@
         render();
       });
   };
+  // 위시 주인이 받은 후원을 거절한다 - 기록을 지우고 모금액에서 빼며, 보낸 사람에게 알린다.
+  window.rejectGift = function (wishId, contributionId) {
+    if (!confirm('이 후원을 거절할까요? 모금액에서 제외돼요.')) return;
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/gift/' + encodeURIComponent(contributionId) + '?user_id=' + encodeURIComponent(state.user.id), { method: 'DELETE' })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('reject failed')); })
+      .then(function () {
+        showToast('후원을 거절했어요.');
+        syncWishesFromServer();
+      })
+      .catch(function () { showToast('거절에 실패했어요.'); });
+  };
 
   // ---- Create wizard ----
   // 5단계 위저드: ① 개인/단체 선택 ② 테마(occasion) ③ 템플릿 ④ 상세정보 ⑤ 확인
   window.openCreateWizard = function () {
-    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrl: '', note: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [] };
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [] };
     render();
   };
   window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
@@ -953,7 +1004,7 @@
     w.templateIdx = idx;
     w.title = tpl.title;
     w.subtitle = tpl.subtitle;
-    w.items = [{ name: tpl.title, link: '', imageUrl: '', note: '', goal: tpl.goal }];
+    w.items = [{ name: tpl.title, link: '', imageUrls: [], note: '', goal: tpl.goal }];
     w.days = tpl.days;
     w.story = '';
     w.step = 4;
@@ -964,14 +1015,14 @@
     w.templateIdx = null;
     w.title = '';
     w.subtitle = '';
-    w.items = [{ name: '', link: '', imageUrl: '', note: '', goal: '' }];
+    w.items = [{ name: '', link: '', imageUrls: [], note: '', goal: '' }];
     w.step = 4;
     render();
   };
 
   // ---- 위저드: 위시 아이템 목록 (런닝화, 유니폼처럼 위시 하나를 이루는 개별 상품들) ----
   window.addWizardItem = function () {
-    state.ui.createWizard.items.push({ name: '', link: '', imageUrl: '', note: '', goal: '' });
+    state.ui.createWizard.items.push({ name: '', link: '', imageUrls: [], note: '', goal: '' });
     render();
   };
   window.removeWizardItem = function (idx) {
@@ -986,10 +1037,18 @@
   window.pickWizardItemImage = function (idx, inputEl) {
     var file = inputEl.files && inputEl.files[0];
     inputEl.value = '';
-    if (!file) return;
+    var item = state.ui.createWizard.items[idx];
+    if (!file || !item) return;
+    if ((item.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
     uploadImageFile(file)
-      .then(function (url) { state.ui.createWizard.items[idx].imageUrl = url; render(); })
+      .then(function (url) { item.imageUrls = (item.imageUrls || []).concat([url]); render(); })
       .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+  };
+  window.removeWizardItemImage = function (idx, imgIdx) {
+    var item = state.ui.createWizard.items[idx];
+    if (!item) return;
+    item.imageUrls.splice(imgIdx, 1);
+    render();
   };
 
   window.wizardSetField = function (field, el) { setStateAtPath('ui.createWizard.' + field, el.value); };
@@ -1049,7 +1108,7 @@
     render();
     var items = w.items.filter(function (i) { return i.name.trim(); }).map(function (i) {
       return {
-        name: i.name.trim(), link: (i.link || '').trim(), image_url: (i.imageUrl || '').trim(), note: (i.note || '').trim(),
+        name: i.name.trim(), link: (i.link || '').trim(), image_urls: i.imageUrls || [], note: (i.note || '').trim(),
         // `|| 1000`은 0/NaN만 걸러내고 음수는 그대로 통과시켜(-5000은 truthy) 진행률 계산을
         // 깨뜨렸던 지점 - wizardNextStep에서 이미 막고 있지만 여기서도 Math.max로 한 번 더 보장한다.
         goal_amount: Math.max(1000, Number(i.goal) || 1000),
@@ -1237,6 +1296,7 @@
     if (state.ui.chatWishId) html += renderChatPage();
     if (state.ui.createWizard) html += renderCreateWizard();
     if (state.ui.customizeOpen) html += renderCustomizeSheet();
+    if (state.ui.imageViewer) html += renderImageViewer();
     if (state.ui.toast) html += '<div id="cheer-toast">🔔 ' + esc(state.ui.toast) + '</div>';
     return '<div id="app-frame">' + html + '</div>';
   }
@@ -1342,7 +1402,7 @@
 
   function renderNotifications() {
     if (!state.notifications.length) return '<div class="empty-state">🔔<br/>아직 알림이 없어요</div>';
-    var icons = { gift_arrived: '🎉', dday_soon: '⏰', cheer_comment: '💬', chat_message: '💬' };
+    var icons = { gift_arrived: '🎉', gift_rejected: '↩️', dday_soon: '⏰', cheer_comment: '💬', chat_message: '💬' };
     var clearAllRow = '<div style="display:flex; justify-content:flex-end; padding:10px 16px 0;"><button onclick="clearAllNotifications()" style="background:none; border:none; color:var(--text-sub); font-size:12px; font-weight:700; cursor:pointer;">모두 지우기</button></div>';
     return clearAllRow + state.notifications.map(function (n) {
       return '' +
@@ -1422,7 +1482,9 @@
     var amounts = [1000, 3000, 5000, 10000, 50000];
     var timeline = wish.contributions.length
       ? wish.contributions.map(function (c) {
-          return '<div class="cheer-item"><span class="who">' + esc(c.fromName) + '</span><span class="msg">' + esc(c.message || '') + '</span><span class="amt">' + formatWon(c.amount) + '</span></div>';
+          return '<div class="cheer-item"><span class="who">' + esc(c.fromName) + '</span><span class="msg">' + esc(c.message || '') + '</span><span class="amt">' + formatWon(c.amount) + '</span>' +
+            (isMine ? '<button onclick="rejectGift(\'' + wish.id + '\', \'' + c.id + '\')" style="background:none; border:none; color:var(--danger); font-size:10.5px; padding:2px 0 2px 6px; cursor:pointer; white-space:nowrap;">거절</button>' : '') +
+          '</div>';
         }).join('')
       : '<div style="font-size:12px; color:var(--text-sub); padding:8px 0;">아직 응원이 없어요, 첫 번째로 보태보세요!</div>';
 
@@ -1432,8 +1494,8 @@
     var itemEd = state.ui.editItemDraft;
     var itemsHtml = (wish.items || []).map(function (item) {
       var itemPct = item.goalAmount > 0 ? Math.min(100, Math.round((item.currentAmount / item.goalAmount) * 100)) : 0;
-      var thumb = item.imageUrl
-        ? '<img src="' + esc(item.imageUrl) + '" style="width:48px; height:48px; border-radius:10px; object-fit:cover; flex-shrink:0; background:#F0EEE7;" />'
+      var thumb = (item.imageUrls && item.imageUrls.length)
+        ? '<img src="' + esc(item.imageUrls[0]) + '" onclick="event.stopPropagation(); openImageViewer(\'' + wish.id + '\', \'' + item.id + '\', 0)" style="width:48px; height:48px; border-radius:10px; object-fit:cover; flex-shrink:0; background:#F0EEE7; cursor:pointer;" />'
         : '<div style="width:48px; height:48px; border-radius:10px; background:#F0EEE7; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;">🎁</div>';
       var linkHtml = item.link ? '<a href="' + esc(item.link) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:11px; color:var(--text-sub); text-decoration:underline;">상품 보러가기 ↗</a>' : '';
       var isOpen = draft && draft.itemId === item.id;
@@ -1444,10 +1506,7 @@
           '<div style="border:1px dashed var(--border); border-radius:14px; padding:12px; margin-bottom:8px; display:flex; flex-direction:column; gap:6px;" onclick="event.stopPropagation()">' +
             '<input type="text" placeholder="아이템 이름 *" value="' + esc(itemEd.name) + '" oninput="setEditItemField(\'name\', this)" />' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(itemEd.link) + '" oninput="setEditItemField(\'link\', this)" />' +
-            '<div style="display:flex; gap:6px;">' +
-              '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(itemEd.imageUrl) + '" oninput="setEditItemField(\'imageUrl\', this)" style="flex:1;" />' +
-              imagePickerButtonHtml('pickEditItemImage(this)') +
-            '</div>' +
+            imageManagerHtml(itemEd.imageUrls, 'removeEditItemImage(', 'pickEditItemImage(this)') +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setEditItemField(\'note\', this)">' + esc(itemEd.note) + '</textarea>' +
             '<div style="display:flex; gap:8px;">' +
@@ -1550,10 +1609,7 @@
       '<div style="border:1px dashed var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px; margin-top:4px;">' +
         '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(d.name) + '" oninput="setAddItemField(\'name\', this)" />' +
         '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(d.link) + '" oninput="setAddItemField(\'link\', this)" />' +
-        '<div style="display:flex; gap:6px;">' +
-          '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(d.imageUrl) + '" oninput="setAddItemField(\'imageUrl\', this)" style="flex:1;" />' +
-          imagePickerButtonHtml('pickAddItemImage(this)') +
-        '</div>' +
+        imageManagerHtml(d.imageUrls, 'removeAddItemImage(', 'pickAddItemImage(this)') +
         '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
         '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setAddItemField(\'note\', this)">' + esc(d.note) + '</textarea>' +
         '<div style="display:flex; gap:8px;">' +
@@ -1561,6 +1617,118 @@
           '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingAddItem ? 'disabled' : '') + ' onclick="saveAddItem()">' + (state.ui.savingAddItem ? '추가 중...' : '추가하기') + '</button>' +
         '</div>' +
       '</div>';
+  }
+
+  // ---- 아이템 사진 크게 보기 (핀치줌/좌우 스와이프 캐러셀, 최대 5장) ----
+  window.openImageViewer = function (wishId, itemId, index) {
+    state.ui.imageViewer = { wishId: wishId, itemId: itemId, index: index || 0 };
+    render();
+  };
+  window.closeImageViewer = function () { state.ui.imageViewer = null; render(); };
+  function imageViewerUrls() {
+    var v = state.ui.imageViewer;
+    if (!v) return [];
+    var wish = state.wishes.filter(function (w) { return w.id === v.wishId; })[0];
+    var item = wish && (wish.items || []).filter(function (i) { return i.id === v.itemId; })[0];
+    return (item && item.imageUrls) || [];
+  }
+  window.imageViewerGoTo = function (delta) {
+    var v = state.ui.imageViewer;
+    var urls = imageViewerUrls();
+    if (!v || !urls.length) return;
+    v.index = (v.index + delta + urls.length) % urls.length;
+    render();
+  };
+  function renderImageViewer() {
+    var v = state.ui.imageViewer;
+    if (!v) return '';
+    var urls = imageViewerUrls();
+    if (!urls.length) { state.ui.imageViewer = null; return ''; }
+    var idx = Math.max(0, Math.min(v.index, urls.length - 1));
+    return '' +
+      '<div id="image-viewer" onclick="if (event.target.id === \'image-viewer\') closeImageViewer()">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px;">' +
+          '<span style="color:#fff; font-size:12px; font-weight:800;">' + (urls.length > 1 ? (idx + 1) + ' / ' + urls.length : '') + '</span>' +
+          '<button onclick="closeImageViewer()" style="background:none; border:none; color:#fff; font-size:22px; cursor:pointer; padding:4px;">✕</button>' +
+        '</div>' +
+        '<div id="image-viewer-stage">' +
+          (urls.length > 1 ? '<button class="iv-nav" style="left:8px;" onclick="imageViewerGoTo(-1)">‹</button>' : '') +
+          '<img id="image-viewer-img" src="' + esc(urls[idx]) + '" draggable="false" />' +
+          (urls.length > 1 ? '<button class="iv-nav" style="right:8px;" onclick="imageViewerGoTo(1)">›</button>' : '') +
+        '</div>' +
+      '</div>';
+  }
+  // 핀치줌/드래그팬/스와이프는 포인터 이벤트로 직접 처리한다 - render()를 거치면(즉 state를
+  // 바꿔 다시 그리면) 제스처 도중 DOM 노드가 통째로 교체되어 드래그가 뚝뚝 끊긴다. 그래서 확대
+  // 배율/이동값은 state가 아니라 이 함수의 클로저 변수로만 들고, 사진이 바뀌거나(다음/이전)
+  // 뷰어를 닫을 때만(=render()가 다시 불릴 때만) 이 함수가 다시 붙으며 초기화된다.
+  function attachImageViewerGestures() {
+    var img = document.getElementById('image-viewer-img');
+    if (!img) return;
+    var scale = 1, panX = 0, panY = 0;
+    var pointers = {};
+    var pinchStartDist = 0, pinchStartScale = 1;
+    var dragStart = null, swipeStartX = null, swiped = false;
+
+    function apply() { img.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + scale + ')'; }
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+    img.onpointerdown = function (e) {
+      try { img.setPointerCapture(e.pointerId); } catch (err) {}
+      pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var ids = Object.keys(pointers);
+      if (ids.length === 2) {
+        pinchStartDist = dist(pointers[ids[0]], pointers[ids[1]]);
+        pinchStartScale = scale;
+        dragStart = null;
+      } else if (ids.length === 1) {
+        dragStart = { x: e.clientX, y: e.clientY, panX: panX, panY: panY };
+        swipeStartX = scale <= 1 ? e.clientX : null;
+        swiped = false;
+      }
+    };
+    img.onpointermove = function (e) {
+      if (!pointers[e.pointerId]) return;
+      pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var ids = Object.keys(pointers);
+      if (ids.length === 2) {
+        var d = dist(pointers[ids[0]], pointers[ids[1]]);
+        scale = Math.min(4, Math.max(1, pinchStartScale * (d / pinchStartDist)));
+        apply();
+      } else if (ids.length === 1 && dragStart) {
+        var dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+        if (scale > 1) {
+          panX = dragStart.panX + dx;
+          panY = dragStart.panY + dy;
+          apply();
+        } else if (swipeStartX != null && Math.abs(dx) > 8) {
+          img.style.transform = 'translateX(' + dx + 'px)';
+        }
+      }
+    };
+    function endPointer(e) {
+      var wasSwipe = pointers[e.pointerId] && Object.keys(pointers).length === 1 && scale <= 1 && swipeStartX != null;
+      delete pointers[e.pointerId];
+      if (Object.keys(pointers).length === 0) {
+        if (wasSwipe && !swiped) {
+          var dx = e.clientX - swipeStartX;
+          if (Math.abs(dx) > 60) { swiped = true; imageViewerGoTo(dx < 0 ? 1 : -1); return; }
+          apply(); // 스와이프 문턱 못 넘었으면 제자리로
+        }
+        dragStart = null; swipeStartX = null;
+      }
+    }
+    img.onpointerup = endPointer;
+    img.onpointercancel = endPointer;
+    img.ondblclick = function () {
+      scale = scale > 1 ? 1 : 2.5; panX = 0; panY = 0; apply();
+    };
+    img.onwheel = function (e) {
+      e.preventDefault();
+      scale = Math.min(4, Math.max(1, scale - e.deltaY * 0.01));
+      if (scale <= 1) { scale = 1; panX = 0; panY = 0; }
+      apply();
+    };
   }
 
   function renderChatPage() {
@@ -1627,10 +1795,7 @@
               (w.items.length > 1 ? '<button type="button" class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="removeWizardItem(' + idx + ')">✕</button>' : '') +
             '</div>' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(it.link) + '" oninput="wizardSetItemField(' + idx + ', \'link\', this)" />' +
-            '<div style="display:flex; gap:6px;">' +
-              '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(it.imageUrl) + '" oninput="wizardSetItemField(' + idx + ', \'imageUrl\', this)" style="flex:1;" />' +
-              imagePickerButtonHtml('pickWizardItemImage(' + idx + ', this)') +
-            '</div>' +
+            imageManagerHtml(it.imageUrls, 'removeWizardItemImage(' + idx + ',', 'pickWizardItemImage(' + idx + ', this)') +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(it.goal) + '" oninput="wizardSetItemField(' + idx + ', \'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="wizardSetItemField(' + idx + ', \'note\', this)">' + esc(it.note) + '</textarea>' +
           '</div>';
@@ -1751,13 +1916,14 @@
   }, 4000);
 
   // "최근 응원 롤링 토스트" 위젯 - 순수 홈 피드가 보이는 동안만 몇 초마다 다음 응원으로 돌린다.
-  // 위시 상세/위저드/꾸미기 시트/대화방이 위에 떠 있을 때는 절대 render()를 부르지 않는다 -
-  // 부르면 그 시트 안에서 타이핑 중인 입력창(id 없는 응원메시지, 채팅 알림으로 대화방에 바로
-  // 들어온 경우의 chat-input 등)이 몇 초마다 포커스를 잃는, keongyu의 검색창 버그와 같은 종류의
-  // 문제가 생긴다.
+  // 위시 상세/위저드/꾸미기 시트/대화방/사진 뷰어가 위에 떠 있을 때는 절대 render()를 부르지
+  // 않는다 - 부르면 그 시트 안에서 타이핑 중인 입력창(id 없는 응원메시지, 채팅 알림으로
+  // 대화방에 바로 들어온 경우의 chat-input 등)이 몇 초마다 포커스를 잃는 keongyu의 검색창
+  // 버그와 같은 문제가 생기고, 사진 뷰어는 render()가 다시 붙을 때마다 확대/이동 상태가
+  // 초기화된다(제스처는 state가 아니라 DOM에 직접 그리는 값이라 render()가 그 값을 모른다).
   setInterval(function () {
     if (!state.customization.widgets.cheerToast || state.ui.tab !== 'home') return;
-    if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen || state.ui.chatWishId) return;
+    if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen || state.ui.chatWishId || state.ui.imageViewer) return;
     var recent = collectRecentCheers();
     if (recent.length < 2) return;
     state.ui.cheerTickerIndex = ((state.ui.cheerTickerIndex || 0) + 1) % recent.length;
@@ -1769,7 +1935,7 @@
   // 친구가 방금 보탠 걸 확인하려면 새로고침해야만 했다. 주기적으로 조용히 새로 받아온다.
   // 시트가 열려있을 때 건드리면 안 되는 이유는 위 인터벌과 같다.
   setInterval(function () {
-    if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen || state.ui.chatWishId) return;
+    if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen || state.ui.chatWishId || state.ui.imageViewer) return;
     syncWishesFromServer();
     syncNotificationsFromServer();
   }, 15000);

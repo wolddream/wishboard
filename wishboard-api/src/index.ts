@@ -11,6 +11,7 @@
  *   PATCH  /api/wishes/:id/items/:itemId -> edit one item (owner only, goal can't drop below what's raised)
  *   DELETE /api/wishes/:id/items/:itemId?user_id= -> delete one item (owner only; blocked if it has gifts, or is the last item)
  *   POST   /api/wishes/:id/gift        -> send a contribution (server caps at item's goal, fans out notifications)
+ *   DELETE /api/wishes/:id/gift/:contributionId?user_id= -> reject a received contribution (owner only; refunds the item's total, notifies the giver)
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
  *   POST   /api/wishes/:id/follow      -> follow/favorite a wish
  *   DELETE /api/wishes/:id/follow?user_id= -> unfollow a wish
@@ -38,7 +39,7 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleJoinWish, handleFollowWish, handleUnfollowWish } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleRejectGift, handleJoinWish, handleFollowWish, handleUnfollowWish } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead, handleDeleteNotification, handleDeleteAllNotifications } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
@@ -80,8 +81,12 @@ export default {
 				return cors(await handleDeleteWishItem(request, env, segments[2], segments[4]));
 			}
 			// /api/wishes/:id/gift
-			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && request.method === "POST") {
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && segments.length === 4 && request.method === "POST") {
 				return cors(await handlePostGift(request, env, segments[2]));
+			}
+			// /api/wishes/:id/gift/:contributionId
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && segments.length === 5 && request.method === "DELETE") {
+				return cors(await handleRejectGift(request, env, segments[2], segments[4]));
 			}
 			// /api/wishes/:id/join
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "join" && request.method === "POST") {

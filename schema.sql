@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS wish_items (
   wish_id TEXT NOT NULL,
   name TEXT NOT NULL,
   link TEXT,
-  image_url TEXT,
+  image_url TEXT, -- 컬럼 이름과 달리 최대 5장의 URL을 담은 JSON 배열 문자열 (parseImageUrls 참고) - 예전 단일 URL 데이터도 그대로 호환된다
   note TEXT, -- 이 아이템을 왜 원하는지/선정 배경 (선택)
   goal_amount INTEGER NOT NULL,
   current_amount INTEGER NOT NULL DEFAULT 0,
@@ -72,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_contributions_item ON contributions(item_id);
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  type TEXT NOT NULL, -- 'gift_arrived' | 'dday_soon' | 'cheer_comment' | 'chat_message'
+  type TEXT NOT NULL, -- 'gift_arrived' | 'gift_rejected' | 'dday_soon' | 'cheer_comment' | 'chat_message'
   wish_id TEXT,
   text TEXT NOT NULL,
   is_read INTEGER DEFAULT 0,

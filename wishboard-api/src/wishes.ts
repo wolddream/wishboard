@@ -1,4 +1,4 @@
-import { json, uid, upsertUser } from "./util";
+import { json, uid, upsertUser, parseImageUrls, serializeImageUrls } from "./util";
 
 interface WishRow {
 	id: string;
@@ -79,7 +79,7 @@ function wishRowToClient(
 			id: i.id,
 			name: i.name,
 			link: i.link || "",
-			imageUrl: i.image_url || "",
+			imageUrls: parseImageUrls(i.image_url),
 			note: i.note || "",
 			goalAmount: i.goal_amount,
 			currentAmount: i.current_amount,
@@ -174,7 +174,7 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 		emoji?: string;
 		category?: string;
 		deadline?: string;
-		items?: Array<{ name?: string; link?: string; image_url?: string; note?: string; goal_amount?: number }>;
+		items?: Array<{ name?: string; link?: string; image_urls?: string[]; note?: string; goal_amount?: number }>;
 	};
 	const items = (body.items || []).filter((i) => i && i.name && i.name.trim() && Number(i.goal_amount) >= 1000);
 	if (!body.owner_id || !body.title || !body.deadline || items.length === 0) {
@@ -218,7 +218,7 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 				wishId,
 				(item.name || "").trim().slice(0, 80),
 				(item.link || "").trim().slice(0, 500),
-				(item.image_url || "").trim().slice(0, 500),
+				serializeImageUrls(item.image_urls),
 				(item.note || "").trim().slice(0, 500),
 				itemGoals[idx],
 				idx
@@ -284,7 +284,7 @@ export async function handlePatchWish(request: Request, env: Env, wishId: string
 // 이미 등록된 위시에 아이템을 하나 더 추가한다(예: "마라톤 대회 참가"에 나중에 "양말" 추가) -
 // 기존 아이템/선물에는 손대지 않으므로 handlePatchWish와 달리 안전하게 언제든 가능하다.
 export async function handleAddWishItem(request: Request, env: Env, wishId: string): Promise<Response> {
-	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; note?: string; goal_amount?: number };
+	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_urls?: string[]; note?: string; goal_amount?: number };
 	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "아이템 추가 권한이 없어요" }, 403);
@@ -301,7 +301,7 @@ export async function handleAddWishItem(request: Request, env: Env, wishId: stri
 			wishId,
 			body.name.trim().slice(0, 80),
 			(body.link || "").trim().slice(0, 500),
-			(body.image_url || "").trim().slice(0, 500),
+			serializeImageUrls(body.image_urls),
 			(body.note || "").trim().slice(0, 500),
 			Math.max(1000, Math.round(Number(body.goal_amount))),
 			sortOrder
@@ -314,7 +314,7 @@ export async function handleAddWishItem(request: Request, env: Env, wishId: stri
 // 아이템 하나를 수정한다(이름/링크/이미지/가격) - owner만. 이미 모인 금액보다 가격을 낮출 수는
 // 없다(handlePatchWish의 목표금액 보호와 같은 이유).
 export async function handlePatchWishItem(request: Request, env: Env, wishId: string, itemId: string): Promise<Response> {
-	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_url?: string; note?: string; goal_amount?: number };
+	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_urls?: string[]; note?: string; goal_amount?: number };
 	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "수정 권한이 없어요" }, 403);
@@ -324,7 +324,7 @@ export async function handlePatchWishItem(request: Request, env: Env, wishId: st
 
 	const goalAmount = Math.max(item.current_amount, Math.round(Number(body.goal_amount) || item.current_amount || 1000));
 	await env.DB.prepare(`UPDATE wish_items SET name = ?, link = ?, image_url = ?, note = ?, goal_amount = ? WHERE id = ?`)
-		.bind(body.name.trim().slice(0, 80), (body.link || "").trim().slice(0, 500), (body.image_url || "").trim().slice(0, 500), (body.note || "").trim().slice(0, 500), goalAmount, itemId)
+		.bind(body.name.trim().slice(0, 80), (body.link || "").trim().slice(0, 500), serializeImageUrls(body.image_urls), (body.note || "").trim().slice(0, 500), goalAmount, itemId)
 		.run();
 
 	return json({ ok: true });
@@ -454,4 +454,36 @@ export async function handlePostGift(request: Request, env: Env, wishId: string)
 
 	await env.DB.batch(statements);
 	return json({ ok: true, applied, itemId: item.id, newCurrentAmount: item.current_amount + applied });
+}
+
+// 위시 주인이 받은 후원(카카오페이로 보탠 금액)을 거절한다 - 기록을 지우고 그만큼 아이템
+// 모금액에서 되돌린 뒤, 보낸 사람(있으면)에게 거절됐다고 알린다. 주인 본인 것만 처리 가능.
+export async function handleRejectGift(request: Request, env: Env, wishId: string, contributionId: string): Promise<Response> {
+	const userId = new URL(request.url).searchParams.get("user_id") || "";
+	const wish = await env.DB.prepare(`SELECT owner_id, title FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string; title: string }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== userId) return json({ error: "권한이 없어요" }, 403);
+
+	const contribution = await env.DB.prepare(`SELECT item_id, amount, from_user_id FROM contributions WHERE id = ? AND wish_id = ?`)
+		.bind(contributionId, wishId)
+		.first<{ item_id: string | null; amount: number; from_user_id: string | null }>();
+	if (!contribution) return json({ error: "contribution not found" }, 404);
+
+	const statements = [env.DB.prepare(`DELETE FROM contributions WHERE id = ?`).bind(contributionId)];
+	if (contribution.item_id) {
+		statements.push(env.DB.prepare(`UPDATE wish_items SET current_amount = MAX(0, current_amount - ?) WHERE id = ?`).bind(contribution.amount, contribution.item_id));
+	}
+	if (contribution.from_user_id && contribution.from_user_id !== wish.owner_id) {
+		statements.push(
+			env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'gift_rejected', ?, ?)`).bind(
+				uid("n"),
+				contribution.from_user_id,
+				wishId,
+				`"${wish.title}"에 보낸 ${contribution.amount.toLocaleString()}원 후원이 거절됐어요`
+			)
+		);
+	}
+
+	await env.DB.batch(statements);
+	return json({ ok: true });
 }

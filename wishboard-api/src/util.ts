@@ -16,6 +16,29 @@ export function uid(prefix: string): string {
 	return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// wish_items.image_url 컬럼 하나에 최대 5장의 URL을 JSON 배열로 얹어 저장한다 - 별도
+// 마이그레이션/컬럼 추가 없이 다중 이미지를 지원하기 위함. 기존 데이터는 URL 문자열 하나뿐이라
+// JSON 파싱이 실패하면 그 문자열 자체를 배열 하나짜리로 취급해 예전 아이템도 그대로 보인다.
+export function parseImageUrls(raw: string | null): string[] {
+	if (!raw) return [];
+	try {
+		const parsed = JSON.parse(raw);
+		if (Array.isArray(parsed)) return parsed.filter((u): u is string => typeof u === "string").slice(0, 5);
+	} catch {
+		// 레거시 단일 URL 문자열
+	}
+	return [raw];
+}
+
+export function serializeImageUrls(urls: unknown): string {
+	if (!Array.isArray(urls)) return "";
+	const cleaned = urls
+		.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+		.map((u) => u.trim())
+		.slice(0, 5);
+	return cleaned.length ? JSON.stringify(cleaned).slice(0, 500) : "";
+}
+
 // UTF-8 safe base64 (btoa() alone mangles multi-byte chars like Korean nicknames).
 export function toBase64Utf8(obj: unknown): string {
 	const bytes = new TextEncoder().encode(JSON.stringify(obj));
