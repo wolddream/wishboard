@@ -14,10 +14,9 @@
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
  *   POST   /api/wishes/:id/follow      -> follow/favorite a wish
  *   DELETE /api/wishes/:id/follow?user_id= -> unfollow a wish
- *   GET    /api/wishes/:id/chat?peer_id=       -> a 1:1 chat thread's messages
- *   POST   /api/wishes/:id/chat                -> send a chat message (owner replies need peer_id; others reply as themselves)
+ *   GET    /api/wishes/:id/chat                -> the wish's shared chat room messages (1:N, everyone sees the same thread)
+ *   POST   /api/wishes/:id/chat                -> send a chat message to the room
  *   DELETE /api/wishes/:id/chat/:messageId?user_id= -> delete a message you sent
- *   GET    /api/wishes/:id/chat/threads?user_id= -> owner-only: list of who has messaged them about this wish
  *   GET    /api/users/:id              -> profile lookup (name/avatar)
  *   PATCH  /api/users/:id              -> update profile (name/avatar) - upserts
  *   GET    /api/notifications?user_id= -> a user's notifications
@@ -37,7 +36,7 @@ import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, han
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
-import { handleGetChat, handlePostChat, handleDeleteChat, handleGetChatThreads } from "./chat";
+import { handleGetChat, handlePostChat, handleDeleteChat } from "./chat";
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
@@ -87,10 +86,6 @@ export default {
 			}
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "follow" && request.method === "DELETE") {
 				return cors(await handleUnfollowWish(request, env, segments[2]));
-			}
-			// /api/wishes/:id/chat/threads (owner-only thread list) - must be checked before the plainer /chat route
-			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments[4] === "threads" && request.method === "GET") {
-				return cors(await handleGetChatThreads(request, env, segments[2]));
 			}
 			// /api/wishes/:id/chat
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments.length === 4 && request.method === "GET") {

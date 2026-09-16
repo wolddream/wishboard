@@ -80,9 +80,8 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
 
--- 위시 하나에 여러 사람이 각자 위시 주인과 1:1로 대화한다. peer_id는 항상 "owner가 아닌 쪽"의
--- id라, owner 입장에선 peer_id별로 대화 상대가 나뉘고 peer 입장에선 자기 자신의 id가 곧
--- peer_id라 스레드가 하나뿐이다(위시 주인과의 대화).
+-- 위시 하나당 대화방 하나(1:N) - 위시 주인과 관심 있는 사람들이 모두 같은 방에서 대화한다.
+-- peer_id는 예전 1:1 스레드 구조의 흔적으로, 항상 owner_id를 채워 넣기만 하고 더는 쓰이지 않는다.
 CREATE TABLE IF NOT EXISTS chat_messages (
   id TEXT PRIMARY KEY,
   wish_id TEXT NOT NULL,
