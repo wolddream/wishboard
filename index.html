@@ -47,7 +47,13 @@
     font-size: 12.5px; font-weight: 700; background: #F0EEE7; color: var(--text-sub); border: none; white-space: nowrap;
   }
   .chip.active { background: var(--primary); color: var(--primary-text); }
-  .scroll-x { display: flex; gap: 7px; overflow-x: auto; padding: 2px 16px 10px; }
+  /* 칩이 화면 너비보다 많아 잘리는데 스크롤할 수 있다는 힌트가 없어 "도전" 뒤로 더 있는 걸
+     놓치기 쉬웠다 - 오른쪽 끝을 살짝 페이드시켜 더 있다는 걸 암시한다. */
+  .scroll-x {
+    display: flex; gap: 7px; overflow-x: auto; padding: 2px 16px 10px;
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+  }
   .scroll-x::-webkit-scrollbar { display: none; }
 
   /* Header */
@@ -1310,7 +1316,9 @@
     state.wishes.forEach(function (w) {
       (w.contributions || []).forEach(function (c) {
         if (c.fromUserId === state.user.id) {
-          gifts.push({ wishId: w.id, wishTitle: w.title, toName: w.ownerName, category: w.category, amount: c.amount, at: c.at });
+          // 자기 위시에 스스로 보탠 경우 "나님께"처럼 어색해지니 이름 대신 "내 위시"라고 표시한다.
+          var toName = w.ownerId === state.user.id ? '내 위시' : w.ownerName;
+          gifts.push({ wishId: w.id, wishTitle: w.title, toName: toName, isSelf: w.ownerId === state.user.id, category: w.category, amount: c.amount, at: c.at });
         }
       });
     });
@@ -1451,7 +1459,7 @@
   }
 
   function timeAgo(ts) {
-    var diff = Date.now() - ts;
+    var diff = Date.now() - new Date(ts).getTime();
     var h = Math.floor(diff / 3600000);
     if (h < 1) return '방금 전';
     if (h < 24) return h + '시간 전';
@@ -1501,7 +1509,7 @@
       : '';
     var historyRows = myGifts.length
       ? myGifts.slice(0, 20).map(function (g) {
-          return '<div class="cheer-item" style="padding:9px 16px;"><span class="who">' + esc(g.toName) + '님께</span><span class="msg">' + esc(g.wishTitle) + '</span><span class="amt">' + formatWon(g.amount) + '</span></div>';
+          return '<div class="cheer-item" style="padding:9px 16px;"><span class="who">' + esc(g.toName) + (g.isSelf ? '에' : '님께') + '</span><span class="msg">' + esc(g.wishTitle) + '</span><span class="amt">' + formatWon(g.amount) + '</span></div>';
         }).join('')
       : '';
     var historySection = myGifts.length ? '<div style="padding:14px 0 4px 16px; font-size:13px; font-weight:900;">보낸 선물 히스토리</div>' + historyRows : '';
@@ -1628,7 +1636,10 @@
 
     return '' +
       '<div class="detail-page">' +
-        '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><button class="icon-btn" onclick="toggleFollow(\'' + wish.id + '\', ' + (wish.following ? 'true' : 'false') + ')">' + (wish.following ? '❤️' : '🤍') + '</button></div>' +
+        '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + '</h2><div style="display:flex; gap:4px; flex-shrink:0;">' +
+          (isMine && !editing ? '<button class="icon-btn" onclick="startEditWish(\'' + wish.id + '\')">✏️</button>' : '') +
+          '<button class="icon-btn" onclick="toggleFollow(\'' + wish.id + '\', ' + (wish.following ? 'true' : 'false') + ')">' + (wish.following ? '❤️' : '🤍') + '</button>' +
+        '</div></div>' +
         (wish.followerCount ? '<div style="font-size:11px; color:var(--text-sub); text-align:right; margin-top:-8px;">❤️ ' + wish.followerCount + '명이 관심 등록했어요</div>' : '') +
         '<div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-sub);">' + wishAvatarHtml(wish, 26) + (wish.type === 'group' ? '👥 ' : '') + wishOwnerLabel(wish) + ' · ' + ddayBadge(wish.deadline) + '</div>' +
         (editing ? editForm : '' +
