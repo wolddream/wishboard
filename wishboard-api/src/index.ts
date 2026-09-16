@@ -21,6 +21,8 @@
  *   PATCH  /api/users/:id              -> update profile (name/avatar) - upserts
  *   GET    /api/notifications?user_id= -> a user's notifications
  *   POST   /api/notifications/:id/read -> mark one notification read
+ *   DELETE /api/notifications/:id?user_id= -> delete one notification
+ *   DELETE /api/notifications?user_id= -> delete all of a user's notifications
  *   GET    /oauth/kakao/callback       -> Kakao OAuth code exchange (redirects back to frontend)
  *
  * Bindings (wrangler.jsonc): DB (D1)
@@ -34,7 +36,7 @@ import "./types";
 import { cors, json } from "./util";
 import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleJoinWish, handleFollowWish, handleUnfollowWish } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
-import { handleGetNotifications, handleMarkNotificationRead } from "./notifications";
+import { handleGetNotifications, handleMarkNotificationRead, handleDeleteNotification, handleDeleteAllNotifications } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
 import { handleGetChat, handlePostChat, handleDeleteChat } from "./chat";
 
@@ -110,9 +112,17 @@ export default {
 				if (!userId) return cors(json({ error: "user_id is required" }, 400));
 				return cors(await handleGetNotifications(env, userId));
 			}
+			// /api/notifications?user_id= (전체 삭제) - /api/notifications/:id 보다 먼저 체크
+			if (url.pathname === "/api/notifications" && request.method === "DELETE") {
+				return cors(await handleDeleteAllNotifications(request, env));
+			}
 			// /api/notifications/:id/read
 			if (segments[0] === "api" && segments[1] === "notifications" && segments[3] === "read" && request.method === "POST") {
 				return cors(await handleMarkNotificationRead(env, segments[2]));
+			}
+			// /api/notifications/:id?user_id=
+			if (segments[0] === "api" && segments[1] === "notifications" && segments.length === 3 && request.method === "DELETE") {
+				return cors(await handleDeleteNotification(request, env, segments[2]));
 			}
 			if (url.pathname === "/oauth/kakao/callback") {
 				return await handleKakaoCallback(request, env);

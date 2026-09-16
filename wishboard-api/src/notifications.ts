@@ -15,3 +15,16 @@ export async function handleMarkNotificationRead(env: Env, notifId: string): Pro
 	await env.DB.prepare(`UPDATE notifications SET is_read = 1 WHERE id = ?`).bind(notifId).run();
 	return json({ ok: true });
 }
+
+export async function handleDeleteNotification(request: Request, env: Env, notifId: string): Promise<Response> {
+	const userId = new URL(request.url).searchParams.get("user_id") || "";
+	await env.DB.prepare(`DELETE FROM notifications WHERE id = ? AND user_id = ?`).bind(notifId, userId).run();
+	return json({ ok: true });
+}
+
+export async function handleDeleteAllNotifications(request: Request, env: Env): Promise<Response> {
+	const userId = new URL(request.url).searchParams.get("user_id") || "";
+	if (!userId) return json({ error: "user_id is required" }, 400);
+	await env.DB.prepare(`DELETE FROM notifications WHERE user_id = ?`).bind(userId).run();
+	return json({ ok: true });
+}
