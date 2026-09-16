@@ -273,6 +273,10 @@ export async function handlePatchWish(request: Request, env: Env, wishId: string
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "수정 권한이 없어요" }, 403);
 	if (!body.title || !body.deadline) return json({ error: "title, deadline are required" }, 400);
+	// 위저드로 새로 만들 땐 "며칠 후"로만 받아서 마감일이 과거가 될 수 없는데, 수정은 날짜를
+	// 직접 골라 넣다 보니 이 방어가 빠져 있었다 - 과거로 바꾸면 "마감 지남" 상태로 고정돼버린다.
+	const todayStr = new Date().toISOString().slice(0, 10);
+	if (body.deadline < todayStr) return json({ error: "마감일은 오늘 이후로 설정해주세요" }, 400);
 
 	await env.DB.prepare(`UPDATE wishes SET title = ?, subtitle = ?, story = ?, deadline = ? WHERE id = ?`)
 		.bind(body.title, body.subtitle || "", body.story || "", body.deadline, wishId)
@@ -433,7 +437,12 @@ export async function handlePostGift(request: Request, env: Env, wishId: string)
 			(body.message || "").slice(0, 300),
 			body.anonymous ? 1 : 0
 		),
-		env.DB.prepare(`UPDATE wish_items SET current_amount = current_amount + ? WHERE id = ?`).bind(applied, item.id),
+		// current_amount = current_amount + ?가 아니라 MIN(goal_amount, current_amount + ?)로 자체
+		// 제한한다 - applied는 위에서 미리 읽어둔(그새 stale해질 수 있는) current_amount로 계산했으니,
+		// 두 사람이 거의 동시에 거의 다 찬 아이템에 보태면 둘 다 "여유 있음"으로 계산해 목표치를
+		// 넘길 수 있다. UPDATE 시점의 실제(라이브) current_amount 기준으로 다시 한번 잘라내야
+		// D1이 요청을 순서대로 처리해도 절대 목표금액을 못 넘는다.
+		env.DB.prepare(`UPDATE wish_items SET current_amount = MIN(goal_amount, current_amount + ?) WHERE id = ? RETURNING current_amount`).bind(applied, item.id),
 	];
 
 	// 위시 소유자(+ 단체 위시면 멤버 전원, 보낸 사람 본인은 제외)에게 알림을 남긴다.
@@ -452,8 +461,11 @@ export async function handlePostGift(request: Request, env: Env, wishId: string)
 		);
 	});
 
-	await env.DB.batch(statements);
-	return json({ ok: true, applied, itemId: item.id, newCurrentAmount: item.current_amount + applied });
+	const results = await env.DB.batch<{ current_amount: number }>(statements);
+	// results[1]은 위 UPDATE...RETURNING 문의 결과 - 동시 요청으로 실제 반영량이 applied보다
+	// 작게 잘렸더라도(위 주석 참고) 여기서 진짜 DB 값을 돌려준다.
+	const newCurrentAmount = results[1]?.results?.[0]?.current_amount ?? item.current_amount + applied;
+	return json({ ok: true, applied, itemId: item.id, newCurrentAmount });
 }
 
 // 위시 주인이 받은 후원(카카오페이로 보탠 금액)을 거절한다 - 기록을 지우고 그만큼 아이템

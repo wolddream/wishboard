@@ -667,6 +667,7 @@
     var title = (d.title || '').trim();
     if (!title) { showToast('제목을 입력해주세요'); return; }
     if (!d.deadline) { showToast('마감일을 선택해주세요'); return; }
+    if (d.deadline < new Date().toISOString().slice(0, 10)) { showToast('마감일은 오늘 이후로 설정해주세요'); return; }
     if (containsBannedWord(title) || containsBannedWord(d.subtitle) || containsBannedWord(d.story)) {
       showToast('부적절한 단어는 사용할 수 없어요.');
       return;
