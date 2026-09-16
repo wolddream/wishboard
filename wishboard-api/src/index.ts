@@ -23,9 +23,13 @@
  *   POST   /api/notifications/:id/read -> mark one notification read
  *   DELETE /api/notifications/:id?user_id= -> delete one notification
  *   DELETE /api/notifications?user_id= -> delete all of a user's notifications
+ *   POST   /api/upload                 -> upload a wish item photo (raw image bytes, content-type set) -> R2, returns its URL
+ *   GET    /r2/:key                    -> serve an uploaded image back out of R2
  *   GET    /oauth/kakao/callback       -> Kakao OAuth code exchange (redirects back to frontend)
  *
- * Bindings (wrangler.jsonc): DB (D1)
+ * Bindings (wrangler.jsonc): DB (D1), IMAGES (R2 bucket "wishboard-images" - create it once with
+ * `wrangler r2 bucket create wishboard-images` before this deploys; no public-access toggle needed,
+ * this worker serves uploaded images itself via GET /r2/:key)
  *
  * No real session auth: every endpoint trusts whatever user_id/name/avatar the client sends,
  * same trust model as keongyu-api. "친구" 관계 테이블은 없다 - keongyu의 공개 라우트 피드처럼,
@@ -39,6 +43,7 @@ import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead, handleDeleteNotification, handleDeleteAllNotifications } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
 import { handleGetChat, handlePostChat, handleDeleteChat } from "./chat";
+import { handleUploadImage, handleServeImage } from "./upload";
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
@@ -123,6 +128,13 @@ export default {
 			// /api/notifications/:id?user_id=
 			if (segments[0] === "api" && segments[1] === "notifications" && segments.length === 3 && request.method === "DELETE") {
 				return cors(await handleDeleteNotification(request, env, segments[2]));
+			}
+			if (url.pathname === "/api/upload" && request.method === "POST") {
+				return cors(await handleUploadImage(request, env));
+			}
+			// /r2/:key - R2에 올린 이미지를 그대로 서빙
+			if (segments[0] === "r2" && segments.length === 2 && request.method === "GET") {
+				return cors(await handleServeImage(env, segments[1]));
 			}
 			if (url.pathname === "/oauth/kakao/callback") {
 				return await handleKakaoCallback(request, env);

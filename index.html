@@ -249,6 +249,26 @@
   if (window.Kakao && !Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY);
   var KAKAO_OAUTH_REDIRECT_URI = API_BASE + '/oauth/kakao/callback';
 
+  // 위시 아이템 사진을 고른 파일 그대로(멀티파트 아님) POST해서 R2에 올리고, 저장된 URL을
+  // 돌려받는다 - 위저드/아이템 추가/아이템 수정 세 군데에서 공용으로 쓴다.
+  function uploadImageFile(file) {
+    return fetch(API_BASE + '/api/upload', {
+      method: 'POST', headers: { 'content-type': file.type }, body: file,
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) return Promise.reject(new Error(data.error || 'upload failed'));
+        return data.url;
+      });
+    });
+  }
+  // 이미지 URL 입력칸 옆에 붙는 "사진 선택" 버튼 - <input type="file">을 숨기고 label로 감싸서
+  // 클릭하면 그 파일 선택창이 뜨게 하는 표준 패턴.
+  function imagePickerButtonHtml(onchangeCall) {
+    return '<label class="btn-ghost" style="display:inline-flex; align-items:center; justify-content:center; padding:0 12px; white-space:nowrap; cursor:pointer; flex-shrink:0;">📷 사진 선택' +
+      '<input type="file" accept="image/*" style="display:none;" onchange="' + onchangeCall + '" />' +
+    '</label>';
+  }
+
   var OCCASIONS = [
     { type: 'birthday', label: '생일 축하', emoji: '🎂', color: '#FF9F6B' },
     { type: 'holiday', label: '시즌·홀리데이', emoji: '🎄', color: '#5FB88A' },
@@ -630,6 +650,14 @@
   };
   window.cancelAddItem = function () { state.ui.addItemDraft = null; render(); };
   window.setAddItemField = function (field, el) { if (state.ui.addItemDraft) state.ui.addItemDraft[field] = el.value; };
+  window.pickAddItemImage = function (inputEl) {
+    var file = inputEl.files && inputEl.files[0];
+    inputEl.value = '';
+    if (!file || !state.ui.addItemDraft) return;
+    uploadImageFile(file)
+      .then(function (url) { state.ui.addItemDraft.imageUrl = url; render(); })
+      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+  };
   window.saveAddItem = function () {
     var d = state.ui.addItemDraft;
     if (!d) return;
@@ -667,6 +695,14 @@
   };
   window.cancelEditItem = function () { state.ui.editItemDraft = null; render(); };
   window.setEditItemField = function (field, el) { if (state.ui.editItemDraft) state.ui.editItemDraft[field] = el.value; };
+  window.pickEditItemImage = function (inputEl) {
+    var file = inputEl.files && inputEl.files[0];
+    inputEl.value = '';
+    if (!file || !state.ui.editItemDraft) return;
+    uploadImageFile(file)
+      .then(function (url) { state.ui.editItemDraft.imageUrl = url; render(); })
+      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+  };
   window.saveEditItem = function () {
     var d = state.ui.editItemDraft;
     if (!d) return;
@@ -946,6 +982,14 @@
   };
   window.wizardSetItemField = function (idx, field, el) {
     state.ui.createWizard.items[idx][field] = el.value;
+  };
+  window.pickWizardItemImage = function (idx, inputEl) {
+    var file = inputEl.files && inputEl.files[0];
+    inputEl.value = '';
+    if (!file) return;
+    uploadImageFile(file)
+      .then(function (url) { state.ui.createWizard.items[idx].imageUrl = url; render(); })
+      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
   };
 
   window.wizardSetField = function (field, el) { setStateAtPath('ui.createWizard.' + field, el.value); };
@@ -1400,7 +1444,10 @@
           '<div style="border:1px dashed var(--border); border-radius:14px; padding:12px; margin-bottom:8px; display:flex; flex-direction:column; gap:6px;" onclick="event.stopPropagation()">' +
             '<input type="text" placeholder="아이템 이름 *" value="' + esc(itemEd.name) + '" oninput="setEditItemField(\'name\', this)" />' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(itemEd.link) + '" oninput="setEditItemField(\'link\', this)" />' +
-            '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(itemEd.imageUrl) + '" oninput="setEditItemField(\'imageUrl\', this)" />' +
+            '<div style="display:flex; gap:6px;">' +
+              '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(itemEd.imageUrl) + '" oninput="setEditItemField(\'imageUrl\', this)" style="flex:1;" />' +
+              imagePickerButtonHtml('pickEditItemImage(this)') +
+            '</div>' +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setEditItemField(\'note\', this)">' + esc(itemEd.note) + '</textarea>' +
             '<div style="display:flex; gap:8px;">' +
@@ -1503,7 +1550,10 @@
       '<div style="border:1px dashed var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px; margin-top:4px;">' +
         '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(d.name) + '" oninput="setAddItemField(\'name\', this)" />' +
         '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(d.link) + '" oninput="setAddItemField(\'link\', this)" />' +
-        '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(d.imageUrl) + '" oninput="setAddItemField(\'imageUrl\', this)" />' +
+        '<div style="display:flex; gap:6px;">' +
+          '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(d.imageUrl) + '" oninput="setAddItemField(\'imageUrl\', this)" style="flex:1;" />' +
+          imagePickerButtonHtml('pickAddItemImage(this)') +
+        '</div>' +
         '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
         '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setAddItemField(\'note\', this)">' + esc(d.note) + '</textarea>' +
         '<div style="display:flex; gap:8px;">' +
@@ -1577,7 +1627,10 @@
               (w.items.length > 1 ? '<button type="button" class="icon-btn" style="width:26px; height:26px; font-size:11px;" onclick="removeWizardItem(' + idx + ')">✕</button>' : '') +
             '</div>' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(it.link) + '" oninput="wizardSetItemField(' + idx + ', \'link\', this)" />' +
-            '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(it.imageUrl) + '" oninput="wizardSetItemField(' + idx + ', \'imageUrl\', this)" />' +
+            '<div style="display:flex; gap:6px;">' +
+              '<input type="text" placeholder="상품 이미지 URL (선택)" value="' + esc(it.imageUrl) + '" oninput="wizardSetItemField(' + idx + ', \'imageUrl\', this)" style="flex:1;" />' +
+              imagePickerButtonHtml('pickWizardItemImage(' + idx + ', this)') +
+            '</div>' +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(it.goal) + '" oninput="wizardSetItemField(' + idx + ', \'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="wizardSetItemField(' + idx + ', \'note\', this)">' + esc(it.note) + '</textarea>' +
           '</div>';
