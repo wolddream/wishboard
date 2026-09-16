@@ -499,3 +499,88 @@ export async function handleRejectGift(request: Request, env: Env, wishId: strin
 	await env.DB.batch(statements);
 	return json({ ok: true });
 }
+
+// 위시 주인이 받은 후원 하나하나에 "고마워요"를 보낸다 - Zola의 땡큐노트 개념을 가볍게
+// 옮긴 것으로, 이미 지웠다 되돌리는 거절과 달리 여기는 상태를 DB에 남기지 않는다(중복
+// 전송 방지는 클라이언트에서 세션 동안만 막아준다 - 스키마 변경 없이 가려던 선택).
+export async function handleThankGift(request: Request, env: Env, wishId: string, contributionId: string): Promise<Response> {
+	const body = (await request.json()) as { user_id?: string };
+	const wish = await env.DB.prepare(`SELECT owner_id, title FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string; title: string }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== body.user_id) return json({ error: "권한이 없어요" }, 403);
+
+	const contribution = await env.DB.prepare(`SELECT from_user_id FROM contributions WHERE id = ? AND wish_id = ?`)
+		.bind(contributionId, wishId)
+		.first<{ from_user_id: string | null }>();
+	if (!contribution) return json({ error: "contribution not found" }, 404);
+	if (!contribution.from_user_id || contribution.from_user_id === wish.owner_id) return json({ ok: true });
+
+	await env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'thank_you', ?, ?)`)
+		.bind(uid("n"), contribution.from_user_id, wishId, `"${wish.title}"에 보낸 후원에 고마움을 전했어요 💌`)
+		.run();
+
+	return json({ ok: true });
+}
+
+// 위시 주인이 관심 등록한 사람 + 단체 멤버 + 한 번이라도 후원한 사람 전원에게 진행 상황을
+// 한 번에 알린다(와디즈/텀블벅의 "업데이트" 개념) - 별도 게시물 테이블 없이 기존
+// notifications을 그대로 재사용한다(채팅과 달리 "전체 공지"라 성격이 다르다).
+export async function handlePostWishUpdate(request: Request, env: Env, wishId: string): Promise<Response> {
+	const body = (await request.json()) as { user_id?: string; message?: string };
+	const message = (body.message || "").trim();
+	if (!message) return json({ error: "message is required" }, 400);
+
+	const wish = await env.DB.prepare(`SELECT owner_id, title, type FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string; title: string; type: string }>();
+	if (!wish) return json({ error: "wish not found" }, 404);
+	if (wish.owner_id !== body.user_id) return json({ error: "권한이 없어요" }, 403);
+
+	const recipients = new Set<string>();
+	const { results: followers } = await env.DB.prepare(`SELECT user_id FROM wish_follows WHERE wish_id = ?`).bind(wishId).all<{ user_id: string }>();
+	followers.forEach((r) => recipients.add(r.user_id));
+	const { results: backers } = await env.DB.prepare(`SELECT DISTINCT from_user_id FROM contributions WHERE wish_id = ? AND from_user_id IS NOT NULL`).bind(wishId).all<{
+		from_user_id: string;
+	}>();
+	backers.forEach((r) => recipients.add(r.from_user_id));
+	if (wish.type === "group") {
+		const { results: members } = await env.DB.prepare(`SELECT user_id FROM wish_members WHERE wish_id = ?`).bind(wishId).all<{ user_id: string }>();
+		members.forEach((r) => recipients.add(r.user_id));
+	}
+	recipients.delete(wish.owner_id);
+	if (recipients.size === 0) return json({ ok: true, notified: 0 });
+
+	const text = `"${wish.title}" 업데이트: ${message.slice(0, 200)}`;
+	await env.DB.batch(
+		Array.from(recipients).map((userId) =>
+			env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'wish_update', ?, ?)`).bind(uid("n"), userId, wishId, text)
+		)
+	);
+	return json({ ok: true, notified: recipients.size });
+}
+
+// Cron Trigger(매일 1회)로 호출된다 - 마감이 정확히 3일 남은 위시를 찾아 주인(+ 단체 위시면
+// 멤버 전원)에게 dday_soon 알림을 보낸다. "정확히 3일"로만 매칭해서 하루에 한 번만 걸리게
+// 하고, 이미 보냈는지 따로 기록해둘 컬럼 없이도 중복 발송을 피한다.
+export async function handleDdaySoonCron(env: Env): Promise<void> {
+	const target = new Date();
+	target.setUTCDate(target.getUTCDate() + 3);
+	const targetDeadline = target.toISOString().slice(0, 10);
+
+	const { results: wishes } = await env.DB.prepare(`SELECT id, owner_id, title, type FROM wishes WHERE deadline = ?`)
+		.bind(targetDeadline)
+		.all<{ id: string; owner_id: string; title: string; type: string }>();
+	if (!wishes.length) return;
+
+	const statements = [];
+	for (const w of wishes) {
+		const text = `"${w.title}" 마감이 3일 남았어요!`;
+		const recipients = new Set<string>([w.owner_id]);
+		if (w.type === "group") {
+			const { results: members } = await env.DB.prepare(`SELECT user_id FROM wish_members WHERE wish_id = ?`).bind(w.id).all<{ user_id: string }>();
+			members.forEach((m) => recipients.add(m.user_id));
+		}
+		recipients.forEach((userId) => {
+			statements.push(env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'dday_soon', ?, ?)`).bind(uid("n"), userId, w.id, text));
+		});
+	}
+	if (statements.length) await env.DB.batch(statements);
+}

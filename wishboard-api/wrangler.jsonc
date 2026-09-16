@@ -26,5 +26,9 @@
 			"binding": "IMAGES",
 			"bucket_name": "wishboard-images"
 		}
-	]
+	],
+	// 매일 자정(UTC, 한국 시간 오전 9시)에 한 번 - 마감 3일 전 위시 주인에게 dday_soon 알림을 보낸다
+	"triggers": {
+		"crons": ["0 0 * * *"]
+	}
 }

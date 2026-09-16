@@ -12,6 +12,8 @@
  *   DELETE /api/wishes/:id/items/:itemId?user_id= -> delete one item (owner only; blocked if it has gifts, or is the last item)
  *   POST   /api/wishes/:id/gift        -> send a contribution (server caps at item's goal, fans out notifications)
  *   DELETE /api/wishes/:id/gift/:contributionId?user_id= -> reject a received contribution (owner only; refunds the item's total, notifies the giver)
+ *   POST   /api/wishes/:id/gift/:contributionId/thanks -> owner sends a "thank you" notification to that contribution's giver
+ *   POST   /api/wishes/:id/update      -> owner broadcasts a text update to followers + backers + group members (notifications only, no new table)
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
  *   POST   /api/wishes/:id/follow      -> follow/favorite a wish
  *   DELETE /api/wishes/:id/follow?user_id= -> unfollow a wish
@@ -28,6 +30,9 @@
  *   GET    /r2/:key                    -> serve an uploaded image back out of R2
  *   GET    /oauth/kakao/callback       -> Kakao OAuth code exchange (redirects back to frontend)
  *
+ * Cron Trigger (wrangler.jsonc "triggers.crons", daily) -> handleDdaySoonCron: notifies owners
+ * (+ group members) of wishes whose deadline is exactly 3 days away.
+ *
  * Bindings (wrangler.jsonc): DB (D1), IMAGES (R2 bucket "wishboard-images" - create it once with
  * `wrangler r2 bucket create wishboard-images` before this deploys; no public-access toggle needed,
  * this worker serves uploaded images itself via GET /r2/:key)
@@ -39,7 +44,7 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleRejectGift, handleJoinWish, handleFollowWish, handleUnfollowWish } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleRejectGift, handleThankGift, handlePostWishUpdate, handleJoinWish, handleFollowWish, handleUnfollowWish, handleDdaySoonCron } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead, handleDeleteNotification, handleDeleteAllNotifications } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
@@ -87,6 +92,14 @@ export default {
 			// /api/wishes/:id/gift/:contributionId
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && segments.length === 5 && request.method === "DELETE") {
 				return cors(await handleRejectGift(request, env, segments[2], segments[4]));
+			}
+			// /api/wishes/:id/gift/:contributionId/thanks
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "gift" && segments[5] === "thanks" && request.method === "POST") {
+				return cors(await handleThankGift(request, env, segments[2], segments[4]));
+			}
+			// /api/wishes/:id/update (owner broadcast to followers/backers/members)
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "update" && request.method === "POST") {
+				return cors(await handlePostWishUpdate(request, env, segments[2]));
 			}
 			// /api/wishes/:id/join
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "join" && request.method === "POST") {
@@ -149,5 +162,8 @@ export default {
 		}
 
 		return cors(new Response("Not found", { status: 404 }));
+	},
+	async scheduled(_event, env, ctx) {
+		ctx.waitUntil(handleDdaySoonCron(env));
 	},
 } satisfies ExportedHandler<Env>;
