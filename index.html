@@ -400,7 +400,7 @@
         tab: 'home', categoryFilter: 'all', wishDetailId: null, giftDraft: null, createWizard: null,
         customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false,
         homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
-        chatWishId: null, chatMessages: null, chatDraft: '', sendingChat: false,
+        chatWishId: null, chatMessages: null, chatDraft: '',
       },
     };
   }
@@ -746,25 +746,36 @@
       .then(function () { fetchChatMessages(wishId); })
       .catch(function () { showToast('삭제에 실패했어요.'); });
   };
+  // 서버 응답(왕복 한 번)을 기다렸다가 전체 메시지 목록을 다시 받아오면 그만큼 화면에 늦게
+  // 뜬다 - 보낸 사람 화면에는 낙관적으로 바로 붙이고, 서버가 준 진짜 id로 조용히 바꿔치기한다.
+  // 실패하면 그 메시지만 빼고 초안을 복구한다.
   window.sendChatMessage = function () {
     var text = (state.ui.chatDraft || '').trim();
-    if (!text || state.ui.sendingChat) return;
+    if (!text) return;
     if (containsBannedWord(text)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
     var wishId = state.ui.chatWishId;
-    state.ui.sendingChat = true;
+    var tempId = uid('temp');
+    state.ui.chatMessages = (state.ui.chatMessages || []).concat([{
+      id: tempId, fromUserId: state.user.id, fromName: state.user.name, text: text, at: new Date().toISOString(),
+    }]);
+    state.ui.chatDraft = '';
     render();
+    var el = document.querySelector('.chat-scroll');
+    if (el) el.scrollTop = el.scrollHeight;
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/chat', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ from_user_id: state.user.id, from_name: state.user.name, from_avatar: state.user.avatar, text: text }),
     })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('send failed')); })
-      .then(function () {
-        state.ui.chatDraft = '';
-        state.ui.sendingChat = false;
-        fetchChatMessages(wishId, true);
+      .then(function (data) {
+        var msg = (state.ui.chatMessages || []).filter(function (m) { return m.id === tempId; })[0];
+        if (!msg) return;
+        msg.id = data.id;
+        render(); // 삭제 버튼 onclick에 박히는 id를 진짜 id로 갱신 - 안 하면 그 사이 삭제 눌렀을 때 실패한다.
       })
       .catch(function () {
-        state.ui.sendingChat = false;
+        state.ui.chatMessages = (state.ui.chatMessages || []).filter(function (m) { return m.id !== tempId; });
+        state.ui.chatDraft = text;
         showToast('메시지 전송에 실패했어요.');
         render();
       });
@@ -1502,7 +1513,7 @@
         '<div class="chat-scroll" style="flex:1; overflow-y:auto; display:flex; flex-direction:column;">' + msgHtml + '</div>' +
         '<div style="display:flex; gap:6px; position:sticky; bottom:0; background:var(--bg); padding-top:6px;">' +
           '<input id="chat-input" type="text" placeholder="메시지를 입력하세요" value="' + esc(state.ui.chatDraft) + '" oninput="setChatDraft(this)" style="flex:1;" />' +
-          '<button class="btn-primary" style="width:auto; padding:0 16px;" ' + (state.ui.sendingChat ? 'disabled' : '') + ' onclick="sendChatMessage()">전송</button>' +
+          '<button class="btn-primary" style="width:auto; padding:0 16px;" onclick="sendChatMessage()">전송</button>' +
         '</div>' +
       '</div>';
   }

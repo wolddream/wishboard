@@ -22,7 +22,7 @@ export async function handleGetChat(request: Request, env: Env, wishId: string):
 	});
 }
 
-export async function handlePostChat(request: Request, env: Env, wishId: string): Promise<Response> {
+export async function handlePostChat(request: Request, env: Env, wishId: string, ctx: ExecutionContext): Promise<Response> {
 	const body = (await request.json()) as { from_user_id?: string; from_name?: string; from_avatar?: string; text?: string };
 	const text = (body.text || "").trim();
 	if (!body.from_user_id || !text) return json({ error: "from_user_id, text are required" }, 400);
@@ -30,35 +30,37 @@ export async function handlePostChat(request: Request, env: Env, wishId: string)
 	const wish = await env.DB.prepare(`SELECT owner_id, title FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string; title: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 
-	await upsertUser(env, body.from_user_id, body.from_name || body.from_user_id, body.from_avatar || "😊");
-
 	const messageId = uid("m");
+	const fromUserId = body.from_user_id;
+	const fromName = body.from_name || "친구";
 
-	// 방에 이미 참여한 사람 + 위시 주인 전원에게 알리되, 보낸 사람 본인은 뺀다.
-	const { results: senders } = await env.DB.prepare(`SELECT DISTINCT from_user_id FROM chat_messages WHERE wish_id = ?`)
-		.bind(wishId)
-		.all<{ from_user_id: string }>();
-	const recipients = new Set(senders.map((r) => r.from_user_id));
-	recipients.add(wish.owner_id);
-	recipients.delete(body.from_user_id);
+	// 보내는 사람이 화면에서 바로 자기 메시지를 보고 있으니, 응답은 메시지 저장이 끝나는 즉시
+	// 돌려준다 - 프로필 동기화/알림 발송은 전송 체감 속도와 무관해서 응답 뒤로 미룬다.
+	await env.DB.prepare(`INSERT INTO chat_messages (id, wish_id, owner_id, peer_id, from_user_id, from_name, text) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+		.bind(messageId, wishId, wish.owner_id, wish.owner_id, fromUserId, fromName, text.slice(0, 500))
+		.run();
 
-	const notifyText = `${body.from_name || "누군가"}님이 "${wish.title}" 대화방에 메시지를 보냈어요`;
-	const statements = [
-		env.DB.prepare(`INSERT INTO chat_messages (id, wish_id, owner_id, peer_id, from_user_id, from_name, text) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(
-			messageId,
-			wishId,
-			wish.owner_id,
-			wish.owner_id,
-			body.from_user_id,
-			body.from_name || "친구",
-			text.slice(0, 500)
-		),
-		...Array.from(recipients).map((userId) =>
-			env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'chat_message', ?, ?)`).bind(uid("n"), userId, wishId, notifyText)
-		),
-	];
+	ctx.waitUntil(
+		(async () => {
+			await upsertUser(env, fromUserId, fromName, body.from_avatar || "😊");
 
-	await env.DB.batch(statements);
+			// 방에 이미 참여한 사람 + 위시 주인 전원에게 알리되, 보낸 사람 본인은 뺀다.
+			const { results: senders } = await env.DB.prepare(`SELECT DISTINCT from_user_id FROM chat_messages WHERE wish_id = ?`)
+				.bind(wishId)
+				.all<{ from_user_id: string }>();
+			const recipients = new Set(senders.map((r) => r.from_user_id));
+			recipients.add(wish.owner_id);
+			recipients.delete(fromUserId);
+			if (recipients.size === 0) return;
+
+			const notifyText = `${fromName}님이 "${wish.title}" 대화방에 메시지를 보냈어요`;
+			await env.DB.batch(
+				Array.from(recipients).map((userId) =>
+					env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'chat_message', ?, ?)`).bind(uid("n"), userId, wishId, notifyText)
+				)
+			);
+		})()
+	);
 
 	return json({ ok: true, id: messageId }, 201);
 }

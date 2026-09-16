@@ -92,7 +92,7 @@ export default {
 				return cors(await handleGetChat(request, env, segments[2]));
 			}
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments.length === 4 && request.method === "POST") {
-				return cors(await handlePostChat(request, env, segments[2]));
+				return cors(await handlePostChat(request, env, segments[2], ctx));
 			}
 			// /api/wishes/:id/chat/:messageId
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "chat" && segments.length === 5 && request.method === "DELETE") {
