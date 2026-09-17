@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS wishes (
   current_amount INTEGER NOT NULL DEFAULT 0,
   deadline TEXT NOT NULL, -- YYYY-MM-DD
   is_private INTEGER NOT NULL DEFAULT 0, -- 1이면 만든 사람 본인에게만 보인다(전체 피드 목록에서 제외)
+  goal_type TEXT NOT NULL DEFAULT 'money', -- 'money'(아이템 금액 합계) | 'hearts'(관심 등록 수) | 'comments'(댓글 수) - 카드/상세의 진행률 %가 이 기준으로 계산된다. 금액이 아니어도 아이템 선물하기는 그대로 동작한다(병행)
+  goal_count INTEGER, -- goal_type이 hearts/comments일 때의 목표 개수 (money면 안 쓰고, 아이템 goal_amount 합계를 대신 쓴다)
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_wishes_created ON wishes(created_at);
@@ -105,3 +107,16 @@ CREATE TABLE IF NOT EXISTS wish_follows (
   PRIMARY KEY (wish_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_wish_follows_user ON wish_follows(user_id);
+
+-- goal_type='comments' 목표(예: "댓글 50개")를 위해 돈 없이도 남길 수 있는 댓글 - 기존
+-- "응원 방명록"은 선물(contributions)의 message라 돈을 안 보태면 댓글도 못 남겼다. 화면에서는
+-- 이 댓글과 선물 메시지를 시간순으로 합쳐서 하나의 방명록처럼 보여준다.
+CREATE TABLE IF NOT EXISTS wish_comments (
+  id TEXT PRIMARY KEY,
+  wish_id TEXT NOT NULL,
+  from_user_id TEXT,
+  from_name TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_wish_comments_wish ON wish_comments(wish_id, created_at);

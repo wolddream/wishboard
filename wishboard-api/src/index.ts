@@ -15,6 +15,8 @@
  *   DELETE /api/wishes/:id/gift/:contributionId?user_id= -> reject a received contribution (owner only; refunds the item's total, notifies the giver)
  *   POST   /api/wishes/:id/gift/:contributionId/thanks -> owner sends a "thank you" notification to that contribution's giver
  *   POST   /api/wishes/:id/update      -> owner broadcasts a text update to followers + backers + group members (notifications only, no new table)
+ *   POST   /api/wishes/:id/comments    -> leave a free comment (no gift required) - counts toward a goal_type='comments' wish
+ *   DELETE /api/wishes/:id/comments/:commentId?user_id= -> delete a comment you left
  *   POST   /api/wishes/:id/join        -> join a group wish via its invite link (?join=id on the client)
  *   POST   /api/wishes/:id/follow      -> follow/favorite a wish
  *   DELETE /api/wishes/:id/follow?user_id= -> unfollow a wish
@@ -38,7 +40,14 @@
  * `wrangler r2 bucket create wishboard-images` before this deploys; no public-access toggle needed,
  * this worker serves uploaded images itself via GET /r2/:key)
  *
- * DB MIGRATION NEEDED before this deploys: `ALTER TABLE wish_items ADD COLUMN pledge TEXT;`
+ * DB MIGRATION NEEDED before this deploys:
+ *   ALTER TABLE wishes ADD COLUMN goal_type TEXT NOT NULL DEFAULT 'money';
+ *   ALTER TABLE wishes ADD COLUMN goal_count INTEGER;
+ *   CREATE TABLE IF NOT EXISTS wish_comments (
+ *     id TEXT PRIMARY KEY, wish_id TEXT NOT NULL, from_user_id TEXT, from_name TEXT NOT NULL,
+ *     text TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+ *   );
+ *   CREATE INDEX IF NOT EXISTS idx_wish_comments_wish ON wish_comments(wish_id, created_at);
  * (run once against the live D1 database - schema.sql is only applied on fresh setup, not on every deploy)
  *
  * No real session auth: every endpoint trusts whatever user_id/name/avatar the client sends,
@@ -48,7 +57,7 @@
  */
 import "./types";
 import { cors, json } from "./util";
-import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleSetWishVisibility, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleRejectGift, handleThankGift, handlePostWishUpdate, handleJoinWish, handleFollowWish, handleUnfollowWish, handleDdaySoonCron } from "./wishes";
+import { handleGetWishes, handlePostWish, handleDeleteWish, handlePatchWish, handleSetWishVisibility, handleAddWishItem, handlePatchWishItem, handleDeleteWishItem, handlePostGift, handleRejectGift, handleThankGift, handlePostWishUpdate, handlePostWishComment, handleDeleteWishComment, handleJoinWish, handleFollowWish, handleUnfollowWish, handleDdaySoonCron } from "./wishes";
 import { handleGetUser, handlePatchUser } from "./users";
 import { handleGetNotifications, handleMarkNotificationRead, handleDeleteNotification, handleDeleteAllNotifications } from "./notifications";
 import { handleKakaoCallback } from "./kakao";
@@ -108,6 +117,14 @@ export default {
 			// /api/wishes/:id/update (owner broadcast to followers/backers/members)
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "update" && request.method === "POST") {
 				return cors(await handlePostWishUpdate(request, env, segments[2]));
+			}
+			// /api/wishes/:id/comments (돈 없이 남기는 댓글)
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "comments" && segments.length === 4 && request.method === "POST") {
+				return cors(await handlePostWishComment(request, env, segments[2]));
+			}
+			// /api/wishes/:id/comments/:commentId
+			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "comments" && segments.length === 5 && request.method === "DELETE") {
+				return cors(await handleDeleteWishComment(request, env, segments[2], segments[4]));
 			}
 			// /api/wishes/:id/join
 			if (segments[0] === "api" && segments[1] === "wishes" && segments[3] === "join" && request.method === "POST") {

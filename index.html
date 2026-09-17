@@ -349,6 +349,14 @@
       '<div style="font-size:10.5px; color:var(--text-sub);">사진 ' + urls.length + '/5</div>' + urlRow;
   }
 
+  // 위시의 "목표"가 항상 돈일 필요는 없다 - 하트수(관심 등록)/댓글수 같은 참여 목표도 고를 수
+  // 있다. 아이템별 선물하기는 goal_type과 무관하게 항상 그대로 동작한다(병행) - 여기서 고른
+  // 건 카드/상세에 보이는 진행률 %를 무엇으로 그릴지에만 영향을 준다.
+  var GOAL_TYPES = [
+    { type: 'money', emoji: '💰', label: '금액' },
+    { type: 'hearts', emoji: '❤️', label: '하트수' },
+    { type: 'comments', emoji: '💬', label: '댓글수' },
+  ];
   var OCCASIONS = [
     { type: 'birthday', label: '생일 축하', emoji: '🎂', color: '#FF9F6B' },
     { type: 'holiday', label: '시즌·홀리데이', emoji: '🎄', color: '#5FB88A' },
@@ -511,6 +519,7 @@
         homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
         chatWishId: null, chatMessages: null, chatDraft: '',
         imageViewer: null, avatarPickerOpen: false, showFundedItems: false, thankedContributions: {},
+        wishCommentDraft: '',
       },
     };
   }
@@ -711,11 +720,12 @@
   window.startEditWish = function (wishId) {
     var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
     if (!wish) return;
-    state.ui.editWishDraft = { id: wish.id, title: wish.title, subtitle: wish.subtitle, story: wish.story, deadline: wish.deadline };
+    state.ui.editWishDraft = { id: wish.id, title: wish.title, subtitle: wish.subtitle, story: wish.story, deadline: wish.deadline, goalType: wish.goalType || 'money', goalCount: wish.goalCount || '' };
     render();
   };
   window.cancelEditWish = function () { state.ui.editWishDraft = null; render(); };
   window.setEditWishField = function (key, el) { if (state.ui.editWishDraft) state.ui.editWishDraft[key] = el.value; };
+  window.setEditWishGoalType = function (type) { if (state.ui.editWishDraft) { state.ui.editWishDraft.goalType = type; render(); } };
   window.saveEditWish = function () {
     var d = state.ui.editWishDraft;
     if (!d) return;
@@ -727,6 +737,7 @@
       showToast('부적절한 단어는 사용할 수 없어요.');
       return;
     }
+    if (d.goalType !== 'money' && !(Number(d.goalCount) >= 1)) { showToast('목표 개수를 1개 이상으로 입력해주세요.'); return; }
     state.ui.savingWishEdit = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.id), {
@@ -734,6 +745,7 @@
       body: JSON.stringify({
         user_id: state.user.id, title: title, subtitle: (d.subtitle || '').trim(),
         story: (d.story || '').trim(), deadline: d.deadline,
+        goal_type: d.goalType, goal_count: d.goalType === 'money' ? null : Number(d.goalCount) || 1,
       }),
     })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('edit failed')); })
@@ -1104,6 +1116,29 @@
       body: JSON.stringify({ user_id: state.user.id }),
     }).catch(function () { showToast('감사 인사 전송에 실패했어요.'); });
   };
+  window.setWishCommentDraft = function (el) { state.ui.wishCommentDraft = el.value; };
+  // goal_type='comments' 목표(댓글수)를 위해 돈 없이도 남길 수 있는 댓글 - 기존 응원 방명록은
+  // 선물 메시지뿐이라 돈을 안 보태면 댓글을 못 남겼다.
+  window.sendWishComment = function (wishId) {
+    var text = (state.ui.wishCommentDraft || '').trim();
+    if (!text) { showToast('댓글 내용을 입력해주세요'); return; }
+    if (containsBannedWord(text)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    state.ui.wishCommentDraft = '';
+    render();
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/comments', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user_id: state.user.id, name: state.user.name, avatar: state.user.avatar, text: text }),
+    })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('comment failed')); })
+      .then(function () { syncWishesFromServer(); })
+      .catch(function () { showToast('댓글 등록에 실패했어요.'); });
+  };
+  window.deleteWishComment = function (wishId, commentId) {
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/comments/' + encodeURIComponent(commentId) + '?user_id=' + encodeURIComponent(state.user.id), { method: 'DELETE' })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('delete failed')); })
+      .then(function () { syncWishesFromServer(); })
+      .catch(function () { showToast('댓글 삭제에 실패했어요.'); });
+  };
   window.pickRemainingGiftAmount = function (itemId) {
     var wish = state.wishes.filter(function (w) { return w.id === state.ui.wishDetailId; })[0];
     var item = wish && (wish.items || []).filter(function (i) { return i.id === itemId; })[0];
@@ -1142,7 +1177,7 @@
   }
   window.openCreateWizard = function () {
     closeTopLevelOverlays();
-    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' }], days: '', emoji: '🎁', suggestedItems: [], isPrivate: false };
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' }], days: '', emoji: '🎁', suggestedItems: [], isPrivate: false, goalType: 'money', goalCount: '' };
     render();
   };
   window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
@@ -1224,6 +1259,7 @@
 
   window.wizardSetField = function (field, el) { setStateAtPath('ui.createWizard.' + field, el.value); };
   window.toggleWizardPrivate = function () { state.ui.createWizard.isPrivate = !state.ui.createWizard.isPrivate; render(); };
+  window.setWizardGoalType = function (type) { state.ui.createWizard.goalType = type; render(); };
   window.wizardSetStory = function (el) {
     var w = state.ui.createWizard;
     w.story = el.value;
@@ -1262,6 +1298,7 @@
       // 다음 단계로 못 넘어가게 여기서 미리 막는다.
       if (!validItems.every(function (i) { return Number(i.goal) >= 1000; })) { showToast('아이템 가격은 1,000원 이상으로 입력해주세요.'); return; }
       if (!(Number(w.days) >= 1)) { showToast('마감일은 1일 이상으로 입력해주세요.'); return; }
+      if (w.goalType !== 'money' && !(Number(w.goalCount) >= 1)) { showToast('목표 개수를 1개 이상으로 입력해주세요.'); return; }
     }
     w.step = w.step + 1;
     render();
@@ -1293,6 +1330,7 @@
         type: isGroup ? 'group' : 'personal', group_name: isGroup ? w.groupName.trim() : '',
         title: w.title.trim(), subtitle: w.subtitle.trim(), story: w.story.trim(), emoji: w.emoji, category: w.occasion,
         items: items, deadline: addDays(Math.max(1, Number(w.days) || 14)), is_private: !!w.isPrivate,
+        goal_type: w.goalType, goal_count: w.goalType === 'money' ? null : Number(w.goalCount) || 1,
       }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
@@ -1592,8 +1630,25 @@
     return Object.keys(seen).length;
   }
 
+  // 위시의 "목표"가 금액(기존)뿐 아니라 하트수(관심 등록 수)/댓글수일 수도 있다 - goal_type이
+  // 무엇이든 카드/상세가 똑같은 방식으로 진행률 바를 그릴 수 있게 여기서 한 번에 계산해준다.
+  // wish.progress는 서버가 계산해서 내려주는데, 혹시 없는(예전 캐시) 경우를 대비해 금액
+  // 기준으로 직접 계산하는 fallback도 둔다.
+  function goalProgress(wish) {
+    var p = wish.progress || {
+      current: wish.currentAmount,
+      target: wish.goalAmount,
+      pct: wish.goalAmount > 0 ? Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100)) : 0,
+    };
+    var type = wish.goalType || 'money';
+    if (type === 'hearts') return { pct: p.pct, icon: '❤️', amtText: Number(p.current || 0).toLocaleString() + ' / ' + Number(p.target || 0).toLocaleString() + '명' };
+    if (type === 'comments') return { pct: p.pct, icon: '💬', amtText: Number(p.current || 0).toLocaleString() + ' / ' + Number(p.target || 0).toLocaleString() + '개' };
+    return { pct: p.pct, icon: '💰', amtText: formatWon(p.current) + ' / ' + formatWon(p.target) };
+  }
+
   function wishCardHtml(wish) {
-    var pct = wish.goalAmount > 0 ? Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100)) : 0;
+    var progress = goalProgress(wish);
+    var pct = progress.pct;
     var backers = uniqueBackerCount(wish);
     var cardCls = 'wish-card style-' + state.customization.cardStyle;
     var followBtn = '' +
@@ -1612,7 +1667,7 @@
         '<div class="title">' + wish.emoji + ' ' + esc(wish.title) + (wish.isPrivate ? ' 🔒' : '') + '</div>' +
         '<div class="subtitle">' + esc(wish.subtitle) + '</div>' +
         '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div><div class="gauge-tick"></div></div>' +
-        '<div class="stat-row"><span class="pct">' + pct + '% 달성' + (backers ? ' · 🎉 ' + backers + '명 참여' : '') + '</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
+        '<div class="stat-row"><span class="pct">' + progress.icon + ' ' + pct + '% 달성' + (backers ? ' · 🎉 ' + backers + '명 참여' : '') + '</span><span class="amt">' + progress.amtText + '</span></div>' +
       '</div>';
   }
 
@@ -1733,13 +1788,27 @@
     var wish = state.wishes.filter(function (w) { return w.id === state.ui.wishDetailId; })[0];
     if (!wish) return '';
     var draft = state.ui.giftDraft;
-    var pct = wish.goalAmount > 0 ? Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100)) : 0;
+    var progress = goalProgress(wish);
+    var pct = progress.pct;
     var isMine = isWishMine(wish);
     var ed = state.ui.editWishDraft;
     var editing = ed && ed.id === wish.id;
     var amounts = [1000, 3000, 5000, 10000, 50000];
-    var timeline = wish.contributions.length
-      ? wish.contributions.map(function (c) {
+    // "응원 방명록"은 원래 선물(돈)에 딸린 메시지뿐이었는데, goal_type='comments' 목표(댓글수)를
+    // 위해 돈 없이 남기는 댓글(wish.comments)이 생겼다 - 방명록엔 둘을 시간순으로 합쳐서 보여준다.
+    var timelineEntries = wish.contributions.map(function (c) { return { kind: 'gift', at: c.at, data: c }; })
+      .concat((wish.comments || []).map(function (cm) { return { kind: 'comment', at: cm.at, data: cm }; }))
+      .sort(function (a, b) { return new Date(b.at) - new Date(a.at); });
+    var timeline = timelineEntries.length
+      ? timelineEntries.map(function (entry) {
+          if (entry.kind === 'comment') {
+            var cm = entry.data;
+            var canDeleteComment = cm.fromUserId && cm.fromUserId === state.user.id;
+            return '<div class="cheer-item"><span class="who">' + esc(cm.fromName) + '</span><span class="msg">' + esc(cm.text) + '</span>' +
+              (canDeleteComment ? '<button onclick="deleteWishComment(\'' + wish.id + '\', \'' + cm.id + '\')" style="background:none; border:none; color:var(--text-sub); font-size:10.5px; padding:2px 0 2px 6px; cursor:pointer; white-space:nowrap;">삭제</button>' : '') +
+            '</div>';
+          }
+          var c = entry.data;
           var thanked = !!state.ui.thankedContributions[c.id];
           return '<div class="cheer-item"><span class="who">' + esc(c.fromName) + '</span><span class="msg">' + esc(c.message || '') + '</span><span class="amt">' + formatWon(c.amount) + '</span>' +
             (isMine ? '' +
@@ -1748,12 +1817,19 @@
               : '') +
           '</div>';
         }).join('')
-      : '<div style="font-size:12px; color:var(--text-sub); padding:8px 0;">아직 응원이 없어요, 첫 번째로 보태보세요!</div>';
+      : '<div style="font-size:12px; color:var(--text-sub); padding:8px 0;">아직 응원이 없어요, 첫 번째로 남겨보세요!</div>';
+    var commentForm = '' +
+      '<div style="display:flex; gap:6px; margin-top:4px;">' +
+        '<input type="text" id="wish-comment-input" placeholder="응원 댓글 남기기 (선물 없이도 OK)" value="' + esc(state.ui.wishCommentDraft) + '" oninput="setWishCommentDraft(this)" style="flex:1;" />' +
+        '<button class="btn-ghost" style="width:auto; padding:0 14px;" onclick="sendWishComment(\'' + wish.id + '\')">등록</button>' +
+      '</div>';
     // GoFundMe의 실시간 후원 티커처럼, 방금 있었던 활동을 상단에 눈에 띄게 보여준다(전체
-    // 목록 하단의 방명록과 별개) - 후원이 없으면 굳이 안 보여준다.
-    var latestActivity = wish.contributions[0];
+    // 목록 하단의 방명록과 별개) - 활동이 없으면 굳이 안 보여준다.
+    var latestActivity = timelineEntries[0];
     var activityBanner = latestActivity
-      ? '<div style="background:#FFFBEF; border-radius:10px; padding:8px 12px; font-size:12px; font-weight:700; color:var(--text-sub); margin-top:2px;">💛 ' + esc(latestActivity.fromName) + '님이 ' + formatWon(latestActivity.amount) + ' 보탰어요 · ' + timeAgo(latestActivity.at) + '</div>'
+      ? (latestActivity.kind === 'gift'
+          ? '<div style="background:#FFFBEF; border-radius:10px; padding:8px 12px; font-size:12px; font-weight:700; color:var(--text-sub); margin-top:2px;">💛 ' + esc(latestActivity.data.fromName) + '님이 ' + formatWon(latestActivity.data.amount) + ' 보탰어요 · ' + timeAgo(latestActivity.at) + '</div>'
+          : '<div style="background:#FFFBEF; border-radius:10px; padding:8px 12px; font-size:12px; font-weight:700; color:var(--text-sub); margin-top:2px;">💬 ' + esc(latestActivity.data.fromName) + '님이 댓글을 남겼어요 · ' + timeAgo(latestActivity.at) + '</div>')
       : '';
 
     // 선물은 위시 전체가 아니라 그 안의 아이템 하나(예: "런닝화")를 향한다 - 아이템별로
@@ -1861,6 +1937,13 @@
       '<input type="text" placeholder="위시 제목 *" value="' + esc(ed.title) + '" oninput="setEditWishField(\'title\', this)" />' +
       '<input type="text" placeholder="한 줄 소개" value="' + esc(ed.subtitle) + '" oninput="setEditWishField(\'subtitle\', this)" />' +
       '<input type="date" value="' + esc(ed.deadline) + '" oninput="setEditWishField(\'deadline\', this)" />' +
+      '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">🎯 목표 종류</div>' +
+      '<div style="display:flex; gap:6px;">' + GOAL_TYPES.map(function (g) {
+        return '<button type="button" class="chip' + (ed.goalType === g.type ? ' active' : '') + '" onclick="setEditWishGoalType(\'' + g.type + '\')">' + g.emoji + ' ' + g.label + '</button>';
+      }).join('') + '</div>' +
+      (ed.goalType !== 'money'
+        ? '<input type="number" placeholder="목표 개수 (예: 100)" value="' + esc(ed.goalCount) + '" oninput="setEditWishField(\'goalCount\', this)" />'
+        : '') +
       '<textarea rows="4" placeholder="희망하는 이유" oninput="setEditWishField(\'story\', this)">' + esc(ed.story) + '</textarea>' +
       '<div style="display:flex; gap:8px; margin-top:4px;">' +
         '<button class="btn-ghost" style="flex:1;" onclick="cancelEditWish()">취소</button>' +
@@ -1884,7 +1967,7 @@
           (wish.story ? '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💭 희망하는 이유</div><div style="font-size:13px; line-height:1.6; white-space:pre-wrap;">' + esc(wish.story) + '</div>' : '') +
           '<div>' +
             '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div><div class="gauge-tick"></div></div>' +
-            '<div class="stat-row"><span class="pct">전체 ' + pct + '% 달성</span><span class="amt">' + formatWon(wish.currentAmount) + ' / ' + formatWon(wish.goalAmount) + '</span></div>' +
+            '<div class="stat-row"><span class="pct">' + progress.icon + ' 전체 ' + pct + '% 달성</span><span class="amt">' + progress.amtText + '</span></div>' +
           '</div>' +
           '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:8px;">🎁 위시 아이템 (' + (wish.items || []).length + ')</div>' +
           itemsHtml +
@@ -1892,6 +1975,7 @@
           chatEntry +
           ownerActions +
           '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">💌 응원 방명록</div>' +
+          commentForm +
           '<div>' + timeline + '</div>') +
       '</div>';
   }
@@ -2103,6 +2187,13 @@
         '<input type="text" placeholder="위시 제목 * (예: 마라톤 대회 참가)" value="' + esc(w.title) + '" oninput="wizardSetField(\'title\', this)" />' +
         '<input type="text" placeholder="한 줄 소개" value="' + esc(w.subtitle) + '" oninput="wizardSetField(\'subtitle\', this)" />' +
         '<input type="number" placeholder="며칠 후 마감" value="' + esc(w.days) + '" oninput="wizardSetField(\'days\', this)" />' +
+        '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">🎯 목표 종류</div>' +
+        '<div style="display:flex; gap:6px;">' + GOAL_TYPES.map(function (g) {
+          return '<button type="button" class="chip' + (w.goalType === g.type ? ' active' : '') + '" onclick="setWizardGoalType(\'' + g.type + '\')">' + g.emoji + ' ' + g.label + '</button>';
+        }).join('') + '</div>' +
+        (w.goalType !== 'money'
+          ? '<input type="number" placeholder="목표 개수 (예: 100)" value="' + esc(w.goalCount) + '" oninput="wizardSetField(\'goalCount\', this)" />'
+          : '') +
         '<div class="option-item' + (w.isPrivate ? ' active' : '') + '" onclick="toggleWizardPrivate()"><span>🔒 나만 보기 (비공개)</span><button class="toggle' + (w.isPrivate ? ' on' : '') + '"></button></div>' +
         '<textarea id="wizard-story-input" rows="3" placeholder="희망하는 이유를 들려주세요 (예: 우승을 위한 위시 리스트예요! 여행, 마라톤, 카메라, 커피 등 키워드를 넣으면 추천 아이템도 떠요)" oninput="wizardSetStory(this)">' + esc(w.story) + '</textarea>' +
         (w.suggestedItems.length ? '<div style="display:flex; flex-wrap:wrap; gap:6px;">' + w.suggestedItems.map(function (it) { return '<button type="button" class="suggest-chip" onclick="applySuggestion(\'' + esc(it) + '\')">+ ' + esc(it) + '</button>'; }).join('') + '</div>' : '') +
@@ -2116,13 +2207,17 @@
         : '<div class="row-top"><div class="avatar">' + avatarContentHtml(state.user.avatar) + '</div><div class="owner">' + esc(state.user.name) + '님의 위시</div><span class="dday">D-' + w.days + '</span></div>';
       var previewItems = w.items.filter(function (i) { return i.name.trim(); });
       var previewGoalSum = previewItems.reduce(function (s, i) { return s + (Math.max(1000, Number(i.goal) || 1000)); }, 0);
+      var previewIcon = w.goalType === 'hearts' ? '❤️' : w.goalType === 'comments' ? '💬' : '💰';
+      var previewAmtText = w.goalType === 'hearts' ? ('0 / ' + (Number(w.goalCount) || 0) + '명')
+        : w.goalType === 'comments' ? ('0 / ' + (Number(w.goalCount) || 0) + '개')
+        : ('0원 / ' + formatWon(previewGoalSum));
       body = '' +
         '<div class="wish-card style-' + state.customization.cardStyle + '" style="margin:0;">' +
           previewOwnerRow +
           '<div class="title">' + w.emoji + ' ' + esc(w.title || '제목 없음') + '</div>' +
           '<div class="subtitle">' + esc(w.subtitle) + '</div>' +
           '<div class="gauge-track"><div class="gauge-fill" style="width:0%;"></div></div>' +
-          '<div class="stat-row"><span class="pct">0% 달성</span><span class="amt">0원 / ' + formatWon(previewGoalSum) + '</span></div>' +
+          '<div class="stat-row"><span class="pct">' + previewIcon + ' 0% 달성</span><span class="amt">' + previewAmtText + '</span></div>' +
         '</div>' +
         '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">🎁 아이템 ' + previewItems.length + '개</div>' +
         previewItems.map(function (i) { return '<div class="cheer-item"><span class="who">' + esc(i.name) + '</span><span class="amt">' + formatWon(Math.max(1000, Number(i.goal) || 1000)) + '</span></div>'; }).join('') +
@@ -2194,7 +2289,7 @@
   // #root를 통째로 교체해 매번 새 입력창 노드가 생겨도 document 리스너는 유효하다. 홈 화면
   // 검색창도 15초 백그라운드 동기화 중 render()가 불릴 수 있어 같은 가드가 필요하다.
   document.addEventListener('compositionstart', function (e) {
-    if (e.target && (e.target.id === 'wizard-story-input' || e.target.id === 'home-search-input' || e.target.id === 'chat-input')) e.target.dataset.composing = 'true';
+    if (e.target && (e.target.id === 'wizard-story-input' || e.target.id === 'home-search-input' || e.target.id === 'chat-input' || e.target.id === 'wish-comment-input')) e.target.dataset.composing = 'true';
   });
   document.addEventListener('compositionend', function (e) {
     if (!e.target) return;
@@ -2207,6 +2302,9 @@
     } else if (e.target.id === 'chat-input') {
       e.target.dataset.composing = 'false';
       window.setChatDraft(e.target);
+    } else if (e.target.id === 'wish-comment-input') {
+      e.target.dataset.composing = 'false';
+      window.setWishCommentDraft(e.target);
     }
   });
 
