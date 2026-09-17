@@ -2186,7 +2186,8 @@
     } else if (w.step === 2) {
       body = '<div class="occasion-grid">' + OCCASIONS.map(function (o) {
         return '<div class="occasion-tile' + (w.occasion === o.type ? ' active' : '') + '" onclick="pickOccasion(\'' + o.type + '\')"><div class="emo">' + o.emoji + '</div><div class="lbl">' + esc(o.label) + '</div></div>';
-      }).join('') + '</div>';
+      }).join('') + '</div>' +
+        '<button type="button" class="btn-ghost" style="margin-top:8px;" onclick="skipTemplateCustom()">✏️ 직접 작성할게요</button>';
     } else if (w.step === 3) {
       var tpls = TEMPLATES[w.occasion] || [];
       body = '<div style="display:flex; flex-direction:column; gap:8px;">' +
