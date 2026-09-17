@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS wish_items (
   link TEXT,
   image_url TEXT, -- 컬럼 이름과 달리 최대 5장의 URL을 담은 JSON 배열 문자열 (parseImageUrls 참고) - 예전 단일 URL 데이터도 그대로 호환된다
   note TEXT, -- 이 아이템을 왜 원하는지/선정 배경 (선택)
+  pledge TEXT, -- 목표 달성 시 지키겠다는 공약 (예: "완주하면 인증샷 올릴게요", 선택)
   goal_amount INTEGER NOT NULL,
   current_amount INTEGER NOT NULL DEFAULT 0,
   sort_order INTEGER DEFAULT 0,

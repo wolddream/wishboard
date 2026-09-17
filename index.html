@@ -175,9 +175,13 @@
     position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 50%;
     background: rgba(255,255,255,0.14); border: none; color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer;
   }
+  /* .bottom-sheet/.detail-page는 flex column인데, 시트 전체 내용이 max-height를 넘으면
+     기본 flex-shrink:1 때문에 textarea가 rows로 정한 높이보다 찌그러들어(제일 유연한 요소라
+     제일 많이 줄어든다) placeholder/입력한 글자 아랫부분이 잘려 보인다 - 시트 스크롤
+     (overflow-y:auto)가 넘치는 걸 처리하니, 폼 필드는 줄어들지 않게 고정한다. */
   textarea, input[type="text"], input[type="number"] {
     width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 13.5px;
-    background: #fff; color: var(--text);
+    background: #fff; color: var(--text); flex-shrink: 0;
   }
   textarea { resize: none; line-height: 1.5; }
   .btn-primary {
@@ -723,7 +727,7 @@
 
   // ---- 위시에 아이템 나중에 추가하기 (만든 사람만) ----
   window.startAddItem = function (wishId) {
-    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrls: [], note: '', goal: '' };
+    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' };
     render();
   };
   window.cancelAddItem = function () { state.ui.addItemDraft = null; render(); };
@@ -759,12 +763,12 @@
     var name = (d.name || '').trim();
     if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
     if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
-    if (containsBannedWord(name) || containsBannedWord(d.note)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    if (containsBannedWord(name) || containsBannedWord(d.note) || containsBannedWord(d.pledge)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
     state.ui.savingAddItem = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), pledge: (d.pledge || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
     })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('add item failed')); })
       .then(function () {
@@ -785,7 +789,7 @@
     var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
     var item = wish && (wish.items || []).filter(function (i) { return i.id === itemId; })[0];
     if (!item) return;
-    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrls: (item.imageUrls || []).slice(), note: item.note, goal: item.goalAmount };
+    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrls: (item.imageUrls || []).slice(), note: item.note, pledge: item.pledge, goal: item.goalAmount };
     render();
   };
   window.cancelEditItem = function () { state.ui.editItemDraft = null; render(); };
@@ -821,12 +825,12 @@
     var name = (d.name || '').trim();
     if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
     if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
-    if (containsBannedWord(name) || containsBannedWord(d.note)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
+    if (containsBannedWord(name) || containsBannedWord(d.note) || containsBannedWord(d.pledge)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
     state.ui.savingEditItem = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items/' + encodeURIComponent(d.itemId), {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), pledge: (d.pledge || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
       .then(function (result) {
@@ -1097,7 +1101,7 @@
   }
   window.openCreateWizard = function () {
     closeTopLevelOverlays();
-    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', goal: '' }], days: 14, emoji: '🎁', suggestedItems: [], isPrivate: false };
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' }], days: '', emoji: '🎁', suggestedItems: [], isPrivate: false };
     render();
   };
   window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
@@ -1122,8 +1126,7 @@
     w.templateIdx = idx;
     w.title = tpl.title;
     w.subtitle = tpl.subtitle;
-    w.items = [{ name: tpl.title, link: '', imageUrls: [], note: '', goal: tpl.goal }];
-    w.days = tpl.days;
+    w.items = [{ name: tpl.title, link: '', imageUrls: [], note: '', pledge: '', goal: tpl.goal }];
     w.story = '';
     w.step = 4;
     render();
@@ -1133,14 +1136,14 @@
     w.templateIdx = null;
     w.title = '';
     w.subtitle = '';
-    w.items = [{ name: '', link: '', imageUrls: [], note: '', goal: '' }];
+    w.items = [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' }];
     w.step = 4;
     render();
   };
 
   // ---- 위저드: 위시 아이템 목록 (런닝화, 유니폼처럼 위시 하나를 이루는 개별 상품들) ----
   window.addWizardItem = function () {
-    state.ui.createWizard.items.push({ name: '', link: '', imageUrls: [], note: '', goal: '' });
+    state.ui.createWizard.items.push({ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' });
     render();
   };
   window.removeWizardItem = function (idx) {
@@ -1208,7 +1211,7 @@
     }
     if (w.step === 4) {
       if (!w.title.trim()) { showToast('제목을 입력해주세요'); return; }
-      if ([w.title, w.subtitle, w.story].concat(w.items.map(function (i) { return i.name; })).concat(w.items.map(function (i) { return i.note; })).some(containsBannedWord)) {
+      if ([w.title, w.subtitle, w.story].concat(w.items.map(function (i) { return i.name; })).concat(w.items.map(function (i) { return i.note; })).concat(w.items.map(function (i) { return i.pledge; })).some(containsBannedWord)) {
         showToast('부적절한 단어는 사용할 수 없어요.'); return;
       }
       var validItems = w.items.filter(function (i) { return i.name.trim(); });
@@ -1236,7 +1239,7 @@
     render();
     var items = w.items.filter(function (i) { return i.name.trim(); }).map(function (i) {
       return {
-        name: i.name.trim(), link: (i.link || '').trim(), image_urls: i.imageUrls || [], note: (i.note || '').trim(),
+        name: i.name.trim(), link: (i.link || '').trim(), image_urls: i.imageUrls || [], note: (i.note || '').trim(), pledge: (i.pledge || '').trim(),
         // `|| 1000`은 0/NaN만 걸러내고 음수는 그대로 통과시켜(-5000은 truthy) 진행률 계산을
         // 깨뜨렸던 지점 - wizardNextStep에서 이미 막고 있지만 여기서도 Math.max로 한 번 더 보장한다.
         goal_amount: Math.max(1000, Number(i.goal) || 1000),
@@ -1699,6 +1702,7 @@
             imageManagerHtml(itemEd.imageUrls, 'removeEditItemImage(', 'pickEditItemImage(this)', 'addEditItemImageUrl(this)') +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setEditItemField(\'note\', this)">' + esc(itemEd.note) + '</textarea>' +
+            '<textarea rows="2" placeholder="위시 목적 달성시 공약 (예: 완주하면 인증샷 올릴게요, 선택)" oninput="setEditItemField(\'pledge\', this)">' + esc(itemEd.pledge) + '</textarea>' +
             '<div style="display:flex; gap:8px;">' +
               '<button class="btn-ghost" style="flex:1;" onclick="cancelEditItem()">취소</button>' +
               '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingEditItem ? 'disabled' : '') + ' onclick="saveEditItem()">' + (state.ui.savingEditItem ? '저장 중...' : '저장하기') + '</button>' +
@@ -1739,6 +1743,7 @@
               '<div style="font-size:13.5px; font-weight:800;">' + esc(item.name) + '</div>' +
               linkHtml +
               (item.note ? '<div style="font-size:11.5px; color:var(--text-sub); line-height:1.4; margin-top:2px; white-space:pre-wrap;">' + esc(item.note) + '</div>' : '') +
+              (item.pledge ? '<div style="font-size:11.5px; color:var(--primary); font-weight:700; line-height:1.4; margin-top:2px; white-space:pre-wrap;">🤝 ' + esc(item.pledge) + '</div>' : '') +
               '<div class="gauge-track" style="margin-top:6px;"><div class="gauge-fill" style="width:' + itemPct + '%;"></div></div>' +
               '<div class="stat-row" style="margin-top:2px;"><span class="pct">' + itemPct + '%</span><span class="amt">' + formatWon(item.currentAmount) + ' / ' + formatWon(item.goalAmount) + '</span></div>' +
             '</div>' +
@@ -1829,6 +1834,7 @@
         imageManagerHtml(d.imageUrls, 'removeAddItemImage(', 'pickAddItemImage(this)', 'addAddItemImageUrl(this)') +
         '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
         '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setAddItemField(\'note\', this)">' + esc(d.note) + '</textarea>' +
+        '<textarea rows="2" placeholder="위시 목적 달성시 공약 (예: 완주하면 인증샷 올릴게요, 선택)" oninput="setAddItemField(\'pledge\', this)">' + esc(d.pledge) + '</textarea>' +
         '<div style="display:flex; gap:8px;">' +
           '<button class="btn-ghost" style="flex:1;" onclick="cancelAddItem()">취소</button>' +
           '<button class="btn-primary" style="flex:1;" ' + (state.ui.savingAddItem ? 'disabled' : '') + ' onclick="saveAddItem()">' + (state.ui.savingAddItem ? '추가 중...' : '추가하기') + '</button>' +
@@ -2015,6 +2021,7 @@
             imageManagerHtml(it.imageUrls, 'removeWizardItemImage(' + idx + ',', 'pickWizardItemImage(' + idx + ', this)', 'addWizardItemImageUrl(' + idx + ', this)') +
             '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(it.goal) + '" oninput="wizardSetItemField(' + idx + ', \'goal\', this)" />' +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="wizardSetItemField(' + idx + ', \'note\', this)">' + esc(it.note) + '</textarea>' +
+            '<textarea rows="2" placeholder="위시 목적 달성시 공약 (예: 완주하면 인증샷 올릴게요, 선택)" oninput="wizardSetItemField(' + idx + ', \'pledge\', this)">' + esc(it.pledge) + '</textarea>' +
           '</div>';
       }).join('');
       body = '' +

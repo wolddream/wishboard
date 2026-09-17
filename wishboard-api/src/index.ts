@@ -38,7 +38,7 @@
  * `wrangler r2 bucket create wishboard-images` before this deploys; no public-access toggle needed,
  * this worker serves uploaded images itself via GET /r2/:key)
  *
- * DB MIGRATION NEEDED before this deploys: `ALTER TABLE wishes ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;`
+ * DB MIGRATION NEEDED before this deploys: `ALTER TABLE wish_items ADD COLUMN pledge TEXT;`
  * (run once against the live D1 database - schema.sql is only applied on fresh setup, not on every deploy)
  *
  * No real session auth: every endpoint trusts whatever user_id/name/avatar the client sends,
