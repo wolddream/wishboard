@@ -489,6 +489,14 @@
   }
 
   var state = loadState();
+  // localStorage에 저장된 state는 예전 버전 것일 수 있다 - defaultState()의 ui에 새 필드가
+  // 추가돼도 기존 사용자의 저장된 state.ui에는 그 필드가 없어 undefined가 되고, 그걸 참조하는
+  // render() 코드가 예외를 던지면 화면 전체가 조용히 멈춘다(예: thankedContributions 필드
+  // 추가 후 위시 카드 클릭이 먹통이 됐던 버그). 없는 필드만 기본값으로 채워 넣어 방지한다.
+  var _defaultUi = defaultState().ui;
+  for (var _uiKey in _defaultUi) {
+    if (!(_uiKey in state.ui)) state.ui[_uiKey] = _defaultUi[_uiKey];
+  }
   state.ui.loading = true; // 서버에서 위시 목록을 처음 받아올 때까지는 "위시가 없어요"가 아니라 로딩 표시
 
   // 위시보드의 실제 취지("친구랑 같이 쓰는") - 여러 사람이 진짜 같은 데이터를 봐야 하므로,
