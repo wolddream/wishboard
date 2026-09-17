@@ -268,9 +268,9 @@
     ? 'http://localhost:8792'
     : 'https://wishboard-api.wolddream.workers.dev';
 
-  // keongyu와 같은 Kakao Developers 앱(JS 키)을 재사용 - wishboard 도메인/리다이렉트 URI를
-  // 그 앱의 "플랫폼 > Web"과 "카카오 로그인 > Redirect URI"에 추가로 등록해둬야 동작한다.
-  var KAKAO_JS_KEY = 'c9b3225b112c58a9bba266cfe150b50a';
+  // 위시보드 전용 Kakao Developers 앱(JS 키) - 카카오톡 공유 카드에 뜨는 발신 앱 이름/아이콘이
+  // 이 앱의 등록 정보를 그대로 따라가므로, keongyu와 같은 키를 쓰면 공유할 때 "keongyu"로 떴다.
+  var KAKAO_JS_KEY = '5e38652b6c0105e8d8461cd9f96c8e7f';
   if (window.Kakao && !Kakao.isInitialized()) Kakao.init(KAKAO_JS_KEY);
   var KAKAO_OAUTH_REDIRECT_URI = API_BASE + '/oauth/kakao/callback';
 

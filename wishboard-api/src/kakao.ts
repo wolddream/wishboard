@@ -6,10 +6,10 @@ import { toBase64Utf8, upsertUser } from "./util";
 // the client) -> redirect back to the frontend with the resulting profile in the URL hash, which
 // index.html picks up on load.
 //
-// IMPORTANT: reuses keongyu's own Kakao Developers app (same JS key) - wishboard's domain and this
-// callback's redirect URI must be registered as an extra allowed domain/redirect URI on that same
-// app in the Kakao Developers console, or Kakao rejects the request.
-const KAKAO_JS_KEY = "c9b3225b112c58a9bba266cfe150b50a"; // public key, safe to hardcode - matches index.html
+// Wishboard's own Kakao Developers app (previously reused keongyu's key, which made shared
+// KakaoTalk cards show "keongyu" as the sending app - that's controlled by the registered app,
+// not this code).
+const KAKAO_JS_KEY = "5e38652b6c0105e8d8461cd9f96c8e7f"; // public key, safe to hardcode - matches index.html
 
 export async function handleKakaoCallback(request: Request, env: Env): Promise<Response> {
 	const url = new URL(request.url);
