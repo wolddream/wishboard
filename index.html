@@ -781,7 +781,7 @@
     if ((d.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
     uploadImageFile(file)
       .then(function (url) { d.imageUrls = (d.imageUrls || []).concat([url]); render(); })
-      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+      .catch(function (err) { showToast(err.message || '이미지 업로드에 실패했어요.'); });
   };
   window.removeAddItemImage = function (idx) {
     var d = state.ui.addItemDraft;
@@ -843,7 +843,7 @@
     if ((d.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
     uploadImageFile(file)
       .then(function (url) { d.imageUrls = (d.imageUrls || []).concat([url]); render(); })
-      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+      .catch(function (err) { showToast(err.message || '이미지 업로드에 실패했어요.'); });
   };
   window.removeEditItemImage = function (idx) {
     var d = state.ui.editItemDraft;
@@ -1204,7 +1204,7 @@
     if ((item.imageUrls || []).length >= 5) { showToast('사진은 최대 5장까지 올릴 수 있어요.'); return; }
     uploadImageFile(file)
       .then(function (url) { item.imageUrls = (item.imageUrls || []).concat([url]); render(); })
-      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+      .catch(function (err) { showToast(err.message || '이미지 업로드에 실패했어요.'); });
   };
   window.removeWizardItemImage = function (idx, imgIdx) {
     var item = state.ui.createWizard.items[idx];
@@ -1354,7 +1354,7 @@
     if (!file) return;
     uploadImageFile(file)
       .then(function (url) { window.setProfileAvatar(url); })
-      .catch(function () { showToast('이미지 업로드에 실패했어요.'); });
+      .catch(function (err) { showToast(err.message || '이미지 업로드에 실패했어요.'); });
   };
 
   // ---- 카카오 로그인 (keongyu와 같은 서버-사이드 authorize 플로우) ----

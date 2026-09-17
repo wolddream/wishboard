@@ -1,6 +1,6 @@
 import { json, uid } from "./util";
 
-const MAX_BYTES = 5 * 1024 * 1024; // 5MB
+const MAX_BYTES = 15 * 1024 * 1024; // 15MB - 요즘 휴대폰 카메라 원본 사진은 5MB를 쉽게 넘는다
 const ALLOWED_TYPES: Record<string, string> = {
 	"image/jpeg": "jpg",
 	"image/png": "png",
