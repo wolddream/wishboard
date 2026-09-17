@@ -527,9 +527,16 @@
     return fetch(API_BASE + '/api/notifications?user_id=' + encodeURIComponent(state.user.id))
       .then(function (res) { return res.ok ? res.json() : { notifications: [] }; })
       .then(function (data) {
-        state.notifications = data.notifications || [];
+        var next = data.notifications || [];
+        var prev = state.notifications || [];
+        // 알림 목록은 위시 상세/폼 안에는 아예 그려지지 않으니(하단 탭 배지만 바뀐다)
+        // 다시 그려도 웬만해선 지장이 없는데, 바뀐 게 없는데도 15초마다 render()를 부르면
+        // 그 순간 다른 입력창(아이디 없는 필드)에 타이핑 중이던 게 끊길 수 있다 - 실제로
+        // 알림이 늘었을 때만 render()를 부른다.
+        var changed = next.length !== prev.length || (next[0] && prev[0] && (next[0].id !== prev[0].id || next[0].read !== prev[0].read));
+        state.notifications = next;
         saveState();
-        render();
+        if (changed) render();
       })
       .catch(function (err) { console.warn('[notifications sync failed]', err); });
   }
@@ -2180,6 +2187,13 @@
   setInterval(function () {
     if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen || state.ui.chatWishId || state.ui.imageViewer) return;
     syncWishesFromServer();
+  }, 15000);
+
+  // 알림(예: 주인이 보낸 "후원자들에게 업데이트 보내기")은 정작 위시 상세를 보고 있는
+  // 사람이 받아야 하는 경우가 많은데, 위 인터벌처럼 오버레이가 떠 있으면 통째로 막아두면
+  // 그 화면을 벗어나기 전까진 영원히 못 받는다 - "1명에게 보냈다는데 알림이 안 뜬다"는
+  // 버그가 바로 이 가드 때문이었다. 알림 목록은 오버레이 안에 그려지지 않으니 계속 받는다.
+  setInterval(function () {
     syncNotificationsFromServer();
   }, 15000);
 
