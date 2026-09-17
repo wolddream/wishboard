@@ -166,6 +166,40 @@
     position: fixed; inset: 0; z-index: 110; background: var(--bg); overflow-y: auto;
     display: flex; flex-direction: column; gap: 14px; padding: 14px 18px calc(18px + env(safe-area-inset-bottom));
   }
+
+  /* 로그인 게이트 - renderApp()이 다른 모든 화면 대신 이것만 그린다(카카오 로그인 전엔
+     위시 내용을 아예 보여주지 않는다). 별도 z-index/오버레이가 아니라 화면 전체를 통째로
+     대체하는 방식이라 .detail-page처럼 fixed일 필요는 없고, 그냥 #root의 유일한 내용이 된다. */
+  .login-gate {
+    min-height: 100dvh; display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+    background: linear-gradient(180deg, #FFFDF3 0%, var(--bg) 60%);
+    padding: calc(52px + env(safe-area-inset-top)) 28px calc(28px + env(safe-area-inset-bottom));
+    text-align: center;
+  }
+  .login-gate-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .login-gate-icon {
+    width: 80px; height: 80px; border-radius: 24px; background: var(--primary);
+    display: flex; align-items: center; justify-content: center; font-size: 40px;
+    box-shadow: 0 12px 26px rgba(254,229,0,0.4);
+  }
+  .login-gate-hero h1 { font-size: 25px; font-weight: 900; margin: 8px 0 0; letter-spacing: -0.4px; }
+  .login-gate-hero p { font-size: 13.5px; color: var(--text-sub); line-height: 1.6; margin: 0; font-weight: 600; }
+  .login-gate-features { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 340px; margin: 28px 0; }
+  .login-gate-feature {
+    display: flex; align-items: center; gap: 12px; text-align: left; background: var(--card);
+    border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; font-size: 13px; font-weight: 800;
+  }
+  .login-gate-feature .ic {
+    font-size: 18px; flex-shrink: 0; width: 34px; height: 34px; border-radius: 11px; background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .login-gate-cta { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 10px; }
+  .login-gate-kakao-btn {
+    width: 100%; border: none; border-radius: 16px; padding: 16px; font-size: 15.5px; font-weight: 900;
+    background: var(--primary); color: var(--primary-text); display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 10px 22px rgba(254,229,0,0.45); cursor: pointer;
+  }
+  .login-gate-fine { font-size: 11px; color: var(--text-sub); line-height: 1.5; }
   /* 아이템 사진 크게 보기 - 핀치줌/드래그팬은 render()를 안 거치고 JS로 transform을 직접
      건드리므로(재렌더가 제스처 중간에 DOM을 갈아치우면 끊긴다), transition 없이 즉시 반응한다. */
   #image-viewer { position: fixed; inset: 0; z-index: 400; background: rgba(10,9,7,0.94); display: flex; flex-direction: column; }
@@ -1333,7 +1367,10 @@
       Kakao.Auth.authorize({
         redirectUri: KAKAO_OAUTH_REDIRECT_URI,
         scope: 'profile_nickname,profile_image',
-        state: encodeURIComponent(location.origin + location.pathname),
+        // 로그인 게이트 때문에 단체 위시 초대 링크(?join=)를 열자마자 로그인부터 해야 하니,
+        // 돌아올 때 그 쿼리스트링을 잃지 않게 그대로 들고 간다 (kakao.ts가 프론트로 되돌려줄
+        // 주소로 그대로 사용).
+        state: encodeURIComponent(location.origin + location.pathname + location.search),
       });
     } else {
       showToast('카카오 SDK를 불러오지 못했어요. 잠시 후 다시 시도해주세요.');
@@ -1341,8 +1378,13 @@
   };
 
   window.logoutFromKakao = function () {
-    var oldName = state.user.name;
     Object.assign(state.user, { id: uid('u'), name: '나', avatar: '😊', provider: 'anon', kakaoProfileImage: null });
+    // 로그인 게이트가 다시 뜨는 동안 화면엔 안 보이지만, 다른 사람 위시/알림이 메모리에
+    // 그대로 남아있을 이유가 없다 - 다음 로그인 때 서버에서 다시 받아온다.
+    state.wishes = [];
+    state.notifications = [];
+    state.ui.wishDetailId = null;
+    state.ui.chatWishId = null;
     saveState();
     render();
     showToast('로그아웃했어요. 👋');
@@ -1447,6 +1489,9 @@
 
   // ============ Render templates ============
   function renderApp() {
+    // 로그인 전엔 위시 내용을 아예 볼 수 없게 한다 - 로그아웃 상태로 돌아가도(provider가
+    // 'anon'이 되면) 여기서 바로 걸려 로그인 게이트만 보인다.
+    if (state.user.provider !== 'kakao') return renderLoginGate();
     var html = '';
     html += renderTopbar();
     if (state.ui.tab === 'home') html += renderHome();
@@ -1464,15 +1509,38 @@
     return '<div id="app-frame">' + html + '</div>';
   }
 
+  function renderLoginGate() {
+    var features = [
+      { ic: '🎯', label: '갖고 싶은 걸 위시로 만들고 목표 금액을 정해요' },
+      { ic: '💌', label: '친구들의 응원과 선물을 실시간으로 받아요' },
+      { ic: '👥', label: '단체 위시로 여럿이 함께 모아요' },
+    ];
+    return '' +
+      '<div class="login-gate">' +
+        '<div class="login-gate-hero">' +
+          '<div class="login-gate-icon">🎁</div>' +
+          '<h1>위시보드</h1>' +
+          '<p>갖고 싶은 걸 위시로 만들고,<br/>친구들에게 선물받아보세요</p>' +
+        '</div>' +
+        '<div class="login-gate-features">' + features.map(function (f) {
+          return '<div class="login-gate-feature"><span class="ic">' + f.ic + '</span><span>' + f.label + '</span></div>';
+        }).join('') + '</div>' +
+        '<div class="login-gate-cta">' +
+          '<button class="login-gate-kakao-btn" onclick="loginWithKakao()">💬 카카오로 3초만에 시작하기</button>' +
+          '<div class="login-gate-fine">로그인하면 카카오 닉네임으로 위시를 만들고<br/>친구와 선물을 주고받을 수 있어요</div>' +
+        '</div>' +
+      '</div>';
+  }
+
   function renderTopbar() {
+    // 로그인 게이트(renderApp() 참고) 때문에 여기 다다랐다는 건 이미 카카오 로그인 상태라는
+    // 뜻이라, 예전에 있던 "로그인 안 했을 때" 분기(로그인 버튼)는 더는 도달할 일이 없다.
     var titles = { home: '위시보드', notif: '알림', my: '마이페이지' };
     var unread = state.notifications.filter(function (n) { return !n.read; }).length;
     return '' +
       '<div id="topbar">' +
         '<div class="logo">🎁 ' + esc(titles[state.ui.tab]) + '</div>' +
         '<div class="actions">' +
-          (state.user.provider === 'kakao' ? '' :
-            '<button onclick="loginWithKakao()" title="카카오로 로그인" style="display:flex; align-items:center; gap:4px; height:34px; padding:0 12px; border:none; border-radius:999px; background:#FEE500; color:#3C1E1E; font-weight:800; font-size:12px; white-space:nowrap; flex-shrink:0;">💬 로그인</button>') +
           '<button class="icon-btn" onclick="setTab(\'notif\')" style="position:relative;">🔔' +
             (unread ? '<span style="position:absolute; top:2px; right:3px; width:7px; height:7px; border-radius:50%; background:var(--danger);"></span>' : '') +
           '</button>' +
@@ -1627,9 +1695,9 @@
     var head = layout === 'avatar'
       ? '<div style="text-align:center; padding:24px 16px 8px;">' + myAvatarHtml(72) + '<div style="display:flex; align-items:center; justify-content:center; gap:6px; margin-top:6px;">' + nameBlock + '</div></div>'
       : '<div style="display:flex; align-items:center; gap:12px; padding:20px 16px 8px;">' + myAvatarHtml(52) + '<div style="display:flex; align-items:center; gap:6px;">' + nameBlock + '</div></div>';
-    var kakaoBlock = state.user.provider === 'kakao'
-      ? '<div style="display:flex; align-items:center; gap:6px; padding:0 16px 16px;"><span class="chip" style="background:#FEE500; color:#3C1E1E;">💬 카카오 계정</span><button class="chip" onclick="logoutFromKakao()" style="background:none; border:1px solid var(--border); color:var(--text-sub);">로그아웃</button></div>'
-      : '<div style="padding:0 16px 16px;"><button onclick="loginWithKakao()" style="width:100%; padding:12px; border:none; border-radius:12px; background:#FEE500; color:#3C1E1E; font-weight:800; font-size:14px; display:flex; align-items:center; justify-content:center; gap:6px;">💬 카카오로 로그인하고 친구에게 알려주기</button></div>';
+    // 로그인 게이트 때문에 마이페이지에 도달했다는 건 이미 카카오 로그인 상태라는 뜻이라,
+    // 예전에 있던 "로그인 안 했을 때" 분기는 더는 도달할 일이 없다.
+    var kakaoBlock = '<div style="display:flex; align-items:center; gap:6px; padding:0 16px 16px;"><span class="chip" style="background:#FEE500; color:#3C1E1E;">💬 카카오 계정</span><button class="chip" onclick="logoutFromKakao()" style="background:none; border:1px solid var(--border); color:var(--text-sub);">로그아웃</button></div>';
     var statCards = '' +
       '<div style="display:flex; gap:10px; padding:0 16px 16px;">' +
         '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 선물</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + myGifts.length + '건</div></div>' +
@@ -2185,6 +2253,7 @@
   // 친구가 방금 보탠 걸 확인하려면 새로고침해야만 했다. 주기적으로 조용히 새로 받아온다.
   // 시트가 열려있을 때 건드리면 안 되는 이유는 위 인터벌과 같다.
   setInterval(function () {
+    if (state.user.provider !== 'kakao') return;
     if (state.ui.wishDetailId || state.ui.createWizard || state.ui.customizeOpen || state.ui.chatWishId || state.ui.imageViewer) return;
     syncWishesFromServer();
   }, 15000);
@@ -2194,6 +2263,7 @@
   // 그 화면을 벗어나기 전까진 영원히 못 받는다 - "1명에게 보냈다는데 알림이 안 뜬다"는
   // 버그가 바로 이 가드 때문이었다. 알림 목록은 오버레이 안에 그려지지 않으니 계속 받는다.
   setInterval(function () {
+    if (state.user.provider !== 'kakao') return;
     syncNotificationsFromServer();
   }, 15000);
 
@@ -2204,9 +2274,14 @@
     if (m) state.ui.wishDetailId = m[1];
   })();
   render(); // 서버 응답 오기 전에도 "불러오는 중" 화면이 바로 보이게 먼저 한 번 그린다
-  joinWishFromUrl();
-  syncWishesFromServer();
-  syncNotificationsFromServer();
+  // 로그인 게이트가 막고 있는 동안엔 어차피 아무것도 안 보이니, 로그인 전엔 서버에
+  // 데이터를 받아올 필요가 없다(단체 위시 초대 링크의 자동 합류도 로그인 후로 미룬다 -
+  // loginWithKakao()가 현재 쿼리스트링을 그대로 들고 돌아오게 해뒀다).
+  if (state.user.provider === 'kakao') {
+    joinWishFromUrl();
+    syncWishesFromServer();
+    syncNotificationsFromServer();
+  }
 })();
 </script>
 </body>

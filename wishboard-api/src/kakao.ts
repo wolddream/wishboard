@@ -20,8 +20,16 @@ export async function handleKakaoCallback(request: Request, env: Env): Promise<R
 		: "https://wishboard-app.wolddream.workers.dev";
 	const redirectUri = `${url.origin}/oauth/kakao/callback`;
 
-	const fail = (reason: string, detail?: unknown) =>
-		Response.redirect(`${frontendOrigin}/#kakao_login=${encodeURIComponent(toBase64Utf8({ error: reason, detail }))}`, 302);
+	// frontendOrigin은 로그인 게이트 때문에 이제 쿼리스트링(예: ?join=...)까지 그대로 들고 올 수
+	// 있다 - 문자열을 그냥 이어붙이면(`${frontendOrigin}/#...`) 그 쿼리값 끝에 "/"가 붙어버려
+	// join id가 깨진다. URL 객체로 만들어 hash만 정확히 붙인다.
+	const withLoginHash = (payload: unknown) => {
+		const dest = new URL(frontendOrigin);
+		dest.hash = `kakao_login=${encodeURIComponent(toBase64Utf8(payload))}`;
+		return dest.toString();
+	};
+
+	const fail = (reason: string, detail?: unknown) => Response.redirect(withLoginHash({ error: reason, detail }), 302);
 
 	if (errorParam || !code) return fail(errorParam || "no_code");
 
@@ -77,7 +85,7 @@ export async function handleKakaoCallback(request: Request, env: Env): Promise<R
 			accessToken: tokenData.access_token,
 			expiresIn: tokenData.expires_in || null,
 		};
-		return Response.redirect(`${frontendOrigin}/#kakao_login=${encodeURIComponent(toBase64Utf8(payload))}`, 302);
+		return Response.redirect(withLoginHash(payload), 302);
 	} catch (err) {
 		return fail("exchange_error", (err as Error).message);
 	}
