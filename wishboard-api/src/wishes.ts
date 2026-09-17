@@ -640,24 +640,41 @@ export async function handleRejectGift(request: Request, env: Env, wishId: strin
 	const userId = new URL(request.url).searchParams.get("user_id") || "";
 	const wish = await env.DB.prepare(`SELECT owner_id, title FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string; title: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
-	if (wish.owner_id !== userId) return json({ error: "권한이 없어요" }, 403);
 
-	const contribution = await env.DB.prepare(`SELECT item_id, amount, from_user_id FROM contributions WHERE id = ? AND wish_id = ?`)
+	const contribution = await env.DB.prepare(`SELECT item_id, amount, from_user_id, from_name FROM contributions WHERE id = ? AND wish_id = ?`)
 		.bind(contributionId, wishId)
-		.first<{ item_id: string | null; amount: number; from_user_id: string | null }>();
+		.first<{ item_id: string | null; amount: number; from_user_id: string | null; from_name: string }>();
 	if (!contribution) return json({ error: "contribution not found" }, 404);
+
+	// 위시 주인(받은 걸 거절)이거나, 보낸 사람 본인(마이페이지 "보낸 선물 히스토리"에서 자기가
+	// 보낸 걸 취소)이어야 한다.
+	const isOwner = wish.owner_id === userId;
+	const isSender = !!contribution.from_user_id && contribution.from_user_id === userId;
+	if (!isOwner && !isSender) return json({ error: "권한이 없어요" }, 403);
 
 	const statements = [env.DB.prepare(`DELETE FROM contributions WHERE id = ?`).bind(contributionId)];
 	if (contribution.item_id) {
 		statements.push(env.DB.prepare(`UPDATE wish_items SET current_amount = MAX(0, current_amount - ?) WHERE id = ?`).bind(contribution.amount, contribution.item_id));
 	}
-	if (contribution.from_user_id && contribution.from_user_id !== wish.owner_id) {
+	if (isOwner && contribution.from_user_id && contribution.from_user_id !== wish.owner_id) {
 		statements.push(
 			env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'gift_rejected', ?, ?)`).bind(
 				uid("n"),
 				contribution.from_user_id,
 				wishId,
 				`"${wish.title}"에 보낸 ${contribution.amount.toLocaleString()}원 후원이 거절됐어요`
+			)
+		);
+	}
+	// 보낸 사람이 스스로 취소한 경우엔 반대로 주인에게 알려준다 - 모금액이 갑자기 줄어든
+	// 이유를 알 수 있게.
+	if (isSender && wish.owner_id !== userId) {
+		statements.push(
+			env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'gift_rejected', ?, ?)`).bind(
+				uid("n"),
+				wish.owner_id,
+				wishId,
+				`${contribution.from_name}님이 "${wish.title}"에 보냈던 ${contribution.amount.toLocaleString()}원 후원을 취소했어요`
 			)
 		);
 	}

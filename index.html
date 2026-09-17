@@ -289,7 +289,7 @@
   .notif-item { display: flex; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
   .notif-item .ic { font-size: 20px; flex-shrink: 0; }
   .notif-item .txt { font-size: 12.5px; line-height: 1.5; }
-  .notif-item .time { font-size: 10.5px; color: var(--text-sub); margin-top: 2px; }
+  .notif-item .time, .cheer-item .time { font-size: 10.5px; color: var(--text-sub); margin-top: 2px; }
   .notif-item.unread { background: #FFFBEF; }
 </style>
 </head>
@@ -523,7 +523,7 @@
         homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
         chatWishId: null, chatMessages: null, chatDraft: '',
         imageViewer: null, avatarPickerOpen: false, showFundedItems: false, thankedContributions: {},
-        wishCommentDraft: '',
+        wishCommentDraft: '', expandedGiftMonths: {},
       },
     };
   }
@@ -1122,6 +1122,26 @@
       })
       .catch(function () { showToast('거절에 실패했어요.'); });
   };
+  // isOpen을 인자로 받아서 그대로 뒤집는다 - 저장된 값이 없으면(첫 진입) 기본값이 "가장
+  // 최근 달만 펼침"이라, 그냥 m[key] = !m[key]로 undefined를 뒤집으면 true가 되어(!undefined
+  // 는 true) 이미 펼쳐져 있던 첫 달을 눌러도 안 닫히는 버그가 있었다.
+  window.toggleGiftHistoryMonth = function (key, isOpen) {
+    state.ui.expandedGiftMonths[key] = !isOpen;
+    render();
+  };
+  // 마이페이지 "보낸 선물 히스토리"에서 내가 보낸 걸 스스로 취소한다 - handleRejectGift를
+  // 그대로 쓰지만(같은 DELETE 엔드포인트), 주인이 "거절"하는 것과 달리 보낸 사람 본인이
+  // "취소"하는 경우라 문구를 다르게 안내한다.
+  window.deleteMyGiftHistoryItem = function (wishId, contributionId) {
+    if (!confirm('이 선물 내역을 삭제할까요? 보낸 금액이 모금액에서 차감돼요.')) return;
+    fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/gift/' + encodeURIComponent(contributionId) + '?user_id=' + encodeURIComponent(state.user.id), { method: 'DELETE' })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('delete failed')); })
+      .then(function () {
+        showToast('선물 내역을 삭제했어요.');
+        syncWishesFromServer();
+      })
+      .catch(function () { showToast('삭제에 실패했어요.'); });
+  };
   // 감사 인사는 DB에 상태를 안 남겨서(위 handleThankGift 주석 참고) "이미 보냈는지"를 이
   // 세션 동안만 로컬에서 기억한다 - 새로고침하면 다시 누를 수 있지만, 반복 클릭으로 같은
   // 사람한테 알림이 여러 번 가는 것 정도만 막아주면 충분하다.
@@ -1537,7 +1557,7 @@
         if (c.fromUserId === state.user.id) {
           // 자기 위시에 스스로 보탠 경우 "나님께"처럼 어색해지니 이름 대신 "내 위시"라고 표시한다.
           var toName = w.ownerId === state.user.id ? '내 위시' : w.ownerName;
-          gifts.push({ wishId: w.id, wishTitle: w.title, toName: toName, isSelf: w.ownerId === state.user.id, category: w.category, amount: c.amount, at: c.at });
+          gifts.push({ wishId: w.id, contributionId: c.id, wishTitle: w.title, toName: toName, isSelf: w.ownerId === state.user.id, category: w.category, amount: c.amount, at: c.at });
         }
       });
     });
@@ -1745,6 +1765,20 @@
     if (h < 24) return h + '시간 전';
     return Math.floor(h / 24) + '일 전';
   }
+  function formatDateTime(ts) {
+    var d = new Date(ts);
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function monthKey(ts) {
+    var d = new Date(ts);
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+  }
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function monthLabel(ts) {
+    var d = new Date(ts);
+    return d.getFullYear() + '년 ' + (d.getMonth() + 1) + '월';
+  }
 
   // 마이페이지 프로필 아바타 - 누르면 아이콘(이모지 캐릭터/사진) 바꾸는 시트가 뜬다는 걸
   // 알 수 있게 카메라 배지를 겹쳐 보여준다.
@@ -1787,11 +1821,36 @@
     var followedSection = followedWishes.length
       ? '<div style="padding:14px 16px 6px; font-size:13px; font-weight:900;">❤️ 관심 위시 (' + followedWishes.length + ')</div>' + followedWishes.map(wishCardHtml).join('')
       : '';
-    var historyRows = myGifts.length
-      ? myGifts.slice(0, 20).map(function (g) {
-          return '<div class="cheer-item" style="padding:9px 16px;"><span class="who">' + esc(g.toName) + (g.isSelf ? '에' : '님께') + '</span><span class="msg">' + esc(g.wishTitle) + '</span><span class="amt">' + formatWon(g.amount) + '</span></div>';
-        }).join('')
-      : '';
+    // 보낸 선물 히스토리 - 월별로 묶어서 접었다 펼칠 수 있게 한다(myGifts는 이미 최신순으로
+    // 정렬돼 있어서, 나오는 순서 그대로 묶으면 월도 자연히 최신순이 된다). 처음엔 가장 최근
+    // 달만 펼쳐두고 나머진 접어서, 기록이 아무리 많이 쌓여도 화면이 안 길어지게 한다.
+    var giftMonthGroups = [];
+    var giftMonthIndex = {};
+    myGifts.forEach(function (g) {
+      var key = monthKey(g.at);
+      if (!(key in giftMonthIndex)) {
+        giftMonthIndex[key] = giftMonthGroups.length;
+        giftMonthGroups.push({ key: key, label: monthLabel(g.at), gifts: [] });
+      }
+      giftMonthGroups[giftMonthIndex[key]].gifts.push(g);
+    });
+    var historyRows = giftMonthGroups.map(function (group, idx) {
+      var isOpen = group.key in state.ui.expandedGiftMonths ? state.ui.expandedGiftMonths[group.key] : idx === 0;
+      var rows = !isOpen ? '' : group.gifts.map(function (g) {
+        return '' +
+          '<div class="cheer-item" style="padding:9px 16px;">' +
+            '<span class="who">' + esc(g.toName) + (g.isSelf ? '에' : '님께') + '</span>' +
+            '<div class="msg">' + esc(g.wishTitle) + '<div class="time">' + formatDateTime(g.at) + '</div></div>' +
+            '<span class="amt">' + formatWon(g.amount) + '</span>' +
+            '<button class="icon-btn" style="width:22px; height:22px; font-size:10px; flex-shrink:0; margin-left:4px;" onclick="deleteMyGiftHistoryItem(\'' + g.wishId + '\', \'' + g.contributionId + '\')">✕</button>' +
+          '</div>';
+      }).join('');
+      return '' +
+        '<div class="option-item" style="margin:6px 16px 0; cursor:pointer;" onclick="toggleGiftHistoryMonth(\'' + group.key + '\', ' + (isOpen ? 'true' : 'false') + ')">' +
+          '<span>' + esc(group.label) + ' · ' + group.gifts.length + '건</span><span>' + (isOpen ? '▲' : '▼') + '</span>' +
+        '</div>' +
+        rows;
+    }).join('');
     var historySection = myGifts.length ? '<div style="padding:14px 0 4px 16px; font-size:13px; font-weight:900;">보낸 선물 히스토리</div>' + historyRows : '';
     return head + kakaoBlock + statCards + myWishSection + followedSection + historySection;
   }
