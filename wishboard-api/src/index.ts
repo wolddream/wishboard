@@ -41,14 +41,11 @@
  * this worker serves uploaded images itself via GET /r2/:key)
  *
  * DB MIGRATION NEEDED before this deploys:
- *   ALTER TABLE wishes ADD COLUMN goal_type TEXT NOT NULL DEFAULT 'money';
- *   ALTER TABLE wishes ADD COLUMN goal_count INTEGER;
- *   CREATE TABLE IF NOT EXISTS wish_comments (
- *     id TEXT PRIMARY KEY, wish_id TEXT NOT NULL, from_user_id TEXT, from_name TEXT NOT NULL,
- *     text TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
- *   );
- *   CREATE INDEX IF NOT EXISTS idx_wish_comments_wish ON wish_comments(wish_id, created_at);
- * (run once against the live D1 database - schema.sql is only applied on fresh setup, not on every deploy)
+ *   ALTER TABLE wish_items ADD COLUMN goal_type TEXT NOT NULL DEFAULT 'money';
+ *   ALTER TABLE wish_items ADD COLUMN goal_count INTEGER;
+ * (run once against the live D1 database - schema.sql is only applied on fresh setup, not on every deploy.
+ * wishes.goal_type/goal_count from an earlier migration are no longer used - goal type moved from the
+ * whole wish to per-item, since different items in one wish can now pursue different goals)
  *
  * No real session auth: every endpoint trusts whatever user_id/name/avatar the client sends,
  * same trust model as keongyu-api. "친구" 관계 테이블은 없다 - keongyu의 공개 라우트 피드처럼,

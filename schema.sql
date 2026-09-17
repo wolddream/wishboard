@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS wishes (
   current_amount INTEGER NOT NULL DEFAULT 0,
   deadline TEXT NOT NULL, -- YYYY-MM-DD
   is_private INTEGER NOT NULL DEFAULT 0, -- 1이면 만든 사람 본인에게만 보인다(전체 피드 목록에서 제외)
-  goal_type TEXT NOT NULL DEFAULT 'money', -- 'money'(아이템 금액 합계) | 'hearts'(관심 등록 수) | 'comments'(댓글 수) - 카드/상세의 진행률 %가 이 기준으로 계산된다. 금액이 아니어도 아이템 선물하기는 그대로 동작한다(병행)
-  goal_count INTEGER, -- goal_type이 hearts/comments일 때의 목표 개수 (money면 안 쓰고, 아이템 goal_amount 합계를 대신 쓴다)
+  goal_type TEXT NOT NULL DEFAULT 'money', -- (더는 안 씀 - 목표 종류를 위시 하나 전체가 아니라 아이템별로 고를 수 있게 바뀌어 wish_items.goal_type으로 옮겨갔다. 컬럼은 과거 데이터 호환을 위해 남겨둔다)
+  goal_count INTEGER, -- (더는 안 씀 - 위와 같은 이유)
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_wishes_created ON wishes(created_at);
@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS wish_items (
   pledge TEXT, -- 목표 달성 시 지키겠다는 공약 (예: "완주하면 인증샷 올릴게요", 선택)
   goal_amount INTEGER NOT NULL,
   current_amount INTEGER NOT NULL DEFAULT 0,
+  goal_type TEXT NOT NULL DEFAULT 'money', -- 'money' | 'hearts'(위시 관심 등록 수) | 'comments'(위시 댓글 수) - 아이템별로 진행률 %가 다른 기준일 수 있다. hearts/comments는 이 위시 전체의 관심/댓글 수를 공유해서 쓴다(아이템별로 따로 세지 않는다)
+  goal_count INTEGER, -- goal_type이 hearts/comments일 때의 목표 개수
   sort_order INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

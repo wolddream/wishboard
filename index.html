@@ -720,12 +720,11 @@
   window.startEditWish = function (wishId) {
     var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
     if (!wish) return;
-    state.ui.editWishDraft = { id: wish.id, title: wish.title, subtitle: wish.subtitle, story: wish.story, deadline: wish.deadline, goalType: wish.goalType || 'money', goalCount: wish.goalCount || '' };
+    state.ui.editWishDraft = { id: wish.id, title: wish.title, subtitle: wish.subtitle, story: wish.story, deadline: wish.deadline };
     render();
   };
   window.cancelEditWish = function () { state.ui.editWishDraft = null; render(); };
   window.setEditWishField = function (key, el) { if (state.ui.editWishDraft) state.ui.editWishDraft[key] = el.value; };
-  window.setEditWishGoalType = function (type) { if (state.ui.editWishDraft) { state.ui.editWishDraft.goalType = type; render(); } };
   window.saveEditWish = function () {
     var d = state.ui.editWishDraft;
     if (!d) return;
@@ -737,7 +736,6 @@
       showToast('부적절한 단어는 사용할 수 없어요.');
       return;
     }
-    if (d.goalType !== 'money' && !(Number(d.goalCount) >= 1)) { showToast('목표 개수를 1개 이상으로 입력해주세요.'); return; }
     state.ui.savingWishEdit = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.id), {
@@ -745,7 +743,6 @@
       body: JSON.stringify({
         user_id: state.user.id, title: title, subtitle: (d.subtitle || '').trim(),
         story: (d.story || '').trim(), deadline: d.deadline,
-        goal_type: d.goalType, goal_count: d.goalType === 'money' ? null : Number(d.goalCount) || 1,
       }),
     })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('edit failed')); })
@@ -780,11 +777,12 @@
 
   // ---- 위시에 아이템 나중에 추가하기 (만든 사람만) ----
   window.startAddItem = function (wishId) {
-    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' };
+    state.ui.addItemDraft = { wishId: wishId, name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '', goalType: 'money', goalCount: '' };
     render();
   };
   window.cancelAddItem = function () { state.ui.addItemDraft = null; render(); };
   window.setAddItemField = function (field, el) { if (state.ui.addItemDraft) state.ui.addItemDraft[field] = el.value; };
+  window.setAddItemGoalType = function (type) { if (state.ui.addItemDraft) { state.ui.addItemDraft.goalType = type; render(); } };
   window.pickAddItemImage = function (inputEl) {
     var file = inputEl.files && inputEl.files[0];
     inputEl.value = '';
@@ -814,14 +812,20 @@
     var d = state.ui.addItemDraft;
     if (!d) return;
     var name = (d.name || '').trim();
+    var goalType = d.goalType === 'hearts' || d.goalType === 'comments' ? d.goalType : 'money';
     if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
-    if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
+    if (goalType === 'money' && !(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
+    if (goalType !== 'money' && !(Number(d.goalCount) >= 1)) { showToast('목표 개수를 1개 이상으로 입력해주세요.'); return; }
     if (containsBannedWord(name) || containsBannedWord(d.note) || containsBannedWord(d.pledge)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
     state.ui.savingAddItem = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), pledge: (d.pledge || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({
+        user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), pledge: (d.pledge || '').trim(),
+        goal_type: goalType, goal_amount: goalType === 'money' ? Math.max(1000, Number(d.goal) || 1000) : 1000,
+        goal_count: goalType === 'money' ? null : Math.max(1, Number(d.goalCount) || 1),
+      }),
     })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('add item failed')); })
       .then(function () {
@@ -842,11 +846,15 @@
     var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
     var item = wish && (wish.items || []).filter(function (i) { return i.id === itemId; })[0];
     if (!item) return;
-    state.ui.editItemDraft = { wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrls: (item.imageUrls || []).slice(), note: item.note, pledge: item.pledge, goal: item.goalAmount };
+    state.ui.editItemDraft = {
+      wishId: wishId, itemId: itemId, name: item.name, link: item.link, imageUrls: (item.imageUrls || []).slice(), note: item.note, pledge: item.pledge,
+      goal: item.goalAmount, goalType: item.goalType || 'money', goalCount: item.goalCount || '',
+    };
     render();
   };
   window.cancelEditItem = function () { state.ui.editItemDraft = null; render(); };
   window.setEditItemField = function (field, el) { if (state.ui.editItemDraft) state.ui.editItemDraft[field] = el.value; };
+  window.setEditItemGoalType = function (type) { if (state.ui.editItemDraft) { state.ui.editItemDraft.goalType = type; render(); } };
   window.pickEditItemImage = function (inputEl) {
     var file = inputEl.files && inputEl.files[0];
     inputEl.value = '';
@@ -876,14 +884,20 @@
     var d = state.ui.editItemDraft;
     if (!d) return;
     var name = (d.name || '').trim();
+    var goalType = d.goalType === 'hearts' || d.goalType === 'comments' ? d.goalType : 'money';
     if (!name) { showToast('아이템 이름을 입력해주세요'); return; }
-    if (!(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
+    if (goalType === 'money' && !(Number(d.goal) >= 1000)) { showToast('가격은 1,000원 이상으로 입력해주세요.'); return; }
+    if (goalType !== 'money' && !(Number(d.goalCount) >= 1)) { showToast('목표 개수를 1개 이상으로 입력해주세요.'); return; }
     if (containsBannedWord(name) || containsBannedWord(d.note) || containsBannedWord(d.pledge)) { showToast('부적절한 단어는 사용할 수 없어요.'); return; }
     state.ui.savingEditItem = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(d.wishId) + '/items/' + encodeURIComponent(d.itemId), {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), pledge: (d.pledge || '').trim(), goal_amount: Math.max(1000, Number(d.goal) || 1000) }),
+      body: JSON.stringify({
+        user_id: state.user.id, name: name, link: (d.link || '').trim(), image_urls: d.imageUrls || [], note: (d.note || '').trim(), pledge: (d.pledge || '').trim(),
+        goal_type: goalType, goal_amount: goalType === 'money' ? Math.max(1000, Number(d.goal) || 1000) : 1000,
+        goal_count: goalType === 'money' ? null : Math.max(1, Number(d.goalCount) || 1),
+      }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
       .then(function (result) {
@@ -1177,7 +1191,7 @@
   }
   window.openCreateWizard = function () {
     closeTopLevelOverlays();
-    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' }], days: '', emoji: '🎁', suggestedItems: [], isPrivate: false, goalType: 'money', goalCount: '' };
+    state.ui.createWizard = { step: 1, wishType: 'personal', groupName: '', occasion: null, templateIdx: null, title: '', subtitle: '', story: '', items: [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '', goalType: 'money', goalCount: '' }], days: '', emoji: '🎁', suggestedItems: [], isPrivate: false };
     render();
   };
   window.closeCreateWizard = function () { state.ui.createWizard = null; render(); };
@@ -1202,7 +1216,7 @@
     w.templateIdx = idx;
     w.title = tpl.title;
     w.subtitle = tpl.subtitle;
-    w.items = [{ name: tpl.title, link: '', imageUrls: [], note: '', pledge: '', goal: tpl.goal }];
+    w.items = [{ name: tpl.title, link: '', imageUrls: [], note: '', pledge: '', goal: tpl.goal, goalType: 'money', goalCount: '' }];
     w.story = '';
     w.step = 4;
     render();
@@ -1212,14 +1226,14 @@
     w.templateIdx = null;
     w.title = '';
     w.subtitle = '';
-    w.items = [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' }];
+    w.items = [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '', goalType: 'money', goalCount: '' }];
     w.step = 4;
     render();
   };
 
   // ---- 위저드: 위시 아이템 목록 (런닝화, 유니폼처럼 위시 하나를 이루는 개별 상품들) ----
   window.addWizardItem = function () {
-    state.ui.createWizard.items.push({ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '' });
+    state.ui.createWizard.items.push({ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '', goalType: 'money', goalCount: '' });
     render();
   };
   window.removeWizardItem = function (idx) {
@@ -1231,6 +1245,7 @@
   window.wizardSetItemField = function (idx, field, el) {
     state.ui.createWizard.items[idx][field] = el.value;
   };
+  window.setWizardItemGoalType = function (idx, type) { state.ui.createWizard.items[idx].goalType = type; render(); };
   window.pickWizardItemImage = function (idx, inputEl) {
     var file = inputEl.files && inputEl.files[0];
     inputEl.value = '';
@@ -1259,7 +1274,6 @@
 
   window.wizardSetField = function (field, el) { setStateAtPath('ui.createWizard.' + field, el.value); };
   window.toggleWizardPrivate = function () { state.ui.createWizard.isPrivate = !state.ui.createWizard.isPrivate; render(); };
-  window.setWizardGoalType = function (type) { state.ui.createWizard.goalType = type; render(); };
   window.wizardSetStory = function (el) {
     var w = state.ui.createWizard;
     w.story = el.value;
@@ -1295,10 +1309,10 @@
       if (!validItems.length) { showToast('위시 아이템을 최소 1개 이상 입력해주세요 (예: 런닝화)'); return; }
       // 목표금액/마감일에 0이나 음수를 넣으면(예: -5000) `Number(goal) || 1000`이 -5000을
       // 그대로 통과시켜(0이 아니라 truthy라서) 진행률 계산이 통째로 깨지는 아이템이 만들어졌다 -
-      // 다음 단계로 못 넘어가게 여기서 미리 막는다.
-      if (!validItems.every(function (i) { return Number(i.goal) >= 1000; })) { showToast('아이템 가격은 1,000원 이상으로 입력해주세요.'); return; }
+      // 다음 단계로 못 넘어가게 여기서 미리 막는다. 목표 종류는 아이템마다 다를 수 있다.
+      if (!validItems.every(function (i) { return i.goalType !== 'money' || Number(i.goal) >= 1000; })) { showToast('아이템 가격은 1,000원 이상으로 입력해주세요.'); return; }
+      if (!validItems.every(function (i) { return i.goalType === 'money' || Number(i.goalCount) >= 1; })) { showToast('하트/댓글 목표 개수를 1개 이상으로 입력해주세요.'); return; }
       if (!(Number(w.days) >= 1)) { showToast('마감일은 1일 이상으로 입력해주세요.'); return; }
-      if (w.goalType !== 'money' && !(Number(w.goalCount) >= 1)) { showToast('목표 개수를 1개 이상으로 입력해주세요.'); return; }
     }
     w.step = w.step + 1;
     render();
@@ -1316,11 +1330,14 @@
     state.ui.creatingWish = true;
     render();
     var items = w.items.filter(function (i) { return i.name.trim(); }).map(function (i) {
+      var goalType = i.goalType === 'hearts' || i.goalType === 'comments' ? i.goalType : 'money';
       return {
         name: i.name.trim(), link: (i.link || '').trim(), image_urls: i.imageUrls || [], note: (i.note || '').trim(), pledge: (i.pledge || '').trim(),
+        goal_type: goalType,
         // `|| 1000`은 0/NaN만 걸러내고 음수는 그대로 통과시켜(-5000은 truthy) 진행률 계산을
         // 깨뜨렸던 지점 - wizardNextStep에서 이미 막고 있지만 여기서도 Math.max로 한 번 더 보장한다.
-        goal_amount: Math.max(1000, Number(i.goal) || 1000),
+        goal_amount: goalType === 'money' ? Math.max(1000, Number(i.goal) || 1000) : 1000,
+        goal_count: goalType === 'money' ? null : Math.max(1, Number(i.goalCount) || 1),
       };
     });
     fetch(API_BASE + '/api/wishes', {
@@ -1330,7 +1347,6 @@
         type: isGroup ? 'group' : 'personal', group_name: isGroup ? w.groupName.trim() : '',
         title: w.title.trim(), subtitle: w.subtitle.trim(), story: w.story.trim(), emoji: w.emoji, category: w.occasion,
         items: items, deadline: addDays(Math.max(1, Number(w.days) || 14)), is_private: !!w.isPrivate,
-        goal_type: w.goalType, goal_count: w.goalType === 'money' ? null : Number(w.goalCount) || 1,
       }),
     })
       .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
@@ -1634,15 +1650,18 @@
   // 무엇이든 카드/상세가 똑같은 방식으로 진행률 바를 그릴 수 있게 여기서 한 번에 계산해준다.
   // wish.progress는 서버가 계산해서 내려주는데, 혹시 없는(예전 캐시) 경우를 대비해 금액
   // 기준으로 직접 계산하는 fallback도 둔다.
-  function goalProgress(wish) {
-    var p = wish.progress || {
-      current: wish.currentAmount,
-      target: wish.goalAmount,
-      pct: wish.goalAmount > 0 ? Math.min(100, Math.round((wish.currentAmount / wish.goalAmount) * 100)) : 0,
+  // wish나 item이나 똑같은 모양(progress: {pct, type, current, target})을 서버가 내려주므로
+  // 카드/상세 양쪽에서 똑같은 방식으로 진행률 바를 그릴 수 있다. wish는 아이템마다 목표
+  // 종류가 다를 수 있어 progress.type이 'mixed'일 수도 있다(아이템 목표 종류가 안 섞여있으면
+  // 그 하나의 종류를 그대로 쓴다) - 이땐 금액/개수를 못 더하니 "완료한 아이템 수"만 보여준다.
+  function goalProgress(obj) {
+    var p = obj.progress || {
+      current: obj.currentAmount, target: obj.goalAmount, type: 'money',
+      pct: obj.goalAmount > 0 ? Math.min(100, Math.round((obj.currentAmount / obj.goalAmount) * 100)) : 0,
     };
-    var type = wish.goalType || 'money';
-    if (type === 'hearts') return { pct: p.pct, icon: '❤️', amtText: Number(p.current || 0).toLocaleString() + ' / ' + Number(p.target || 0).toLocaleString() + '명' };
-    if (type === 'comments') return { pct: p.pct, icon: '💬', amtText: Number(p.current || 0).toLocaleString() + ' / ' + Number(p.target || 0).toLocaleString() + '개' };
+    if (p.type === 'hearts') return { pct: p.pct, icon: '❤️', amtText: Number(p.current || 0).toLocaleString() + ' / ' + Number(p.target || 0).toLocaleString() + '명' };
+    if (p.type === 'comments') return { pct: p.pct, icon: '💬', amtText: Number(p.current || 0).toLocaleString() + ' / ' + Number(p.target || 0).toLocaleString() + '개' };
+    if (p.type === 'mixed') return { pct: p.pct, icon: '🎯', amtText: '아이템 ' + (p.completedItems || 0) + ' / ' + (p.totalItems || 0) + '개 달성' };
     return { pct: p.pct, icon: '💰', amtText: formatWon(p.current) + ' / ' + formatWon(p.target) };
   }
 
@@ -1837,7 +1856,8 @@
     // 펼쳐진다(draft.itemId로 어느 아이템이 펼쳐져 있는지 추적).
     var itemEd = state.ui.editItemDraft;
     function itemBlockHtml(item) {
-      var itemPct = item.goalAmount > 0 ? Math.min(100, Math.round((item.currentAmount / item.goalAmount) * 100)) : 0;
+      var itemProgress = goalProgress(item);
+      var itemPct = itemProgress.pct;
       var thumb = (item.imageUrls && item.imageUrls.length)
         ? '<img src="' + esc(item.imageUrls[0]) + '" onclick="event.stopPropagation(); openImageViewer(\'' + wish.id + '\', \'' + item.id + '\', 0)" style="width:48px; height:48px; border-radius:10px; object-fit:cover; flex-shrink:0; background:#F0EEE7; cursor:pointer;" />'
         : '<div style="width:48px; height:48px; border-radius:10px; background:#F0EEE7; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;">🎁</div>';
@@ -1851,7 +1871,12 @@
             '<input type="text" placeholder="아이템 이름 *" value="' + esc(itemEd.name) + '" maxlength="80" oninput="setEditItemField(\'name\', this)" />' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(itemEd.link) + '" oninput="setEditItemField(\'link\', this)" />' +
             imageManagerHtml(itemEd.imageUrls, 'removeEditItemImage(', 'pickEditItemImage(this)', 'addEditItemImageUrl(this)') +
-            '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />' +
+            '<div style="display:flex; gap:6px;">' + GOAL_TYPES.map(function (g) {
+              return '<button type="button" class="chip' + ((itemEd.goalType || 'money') === g.type ? ' active' : '') + '" onclick="setEditItemGoalType(\'' + g.type + '\')">' + g.emoji + ' ' + g.label + '</button>';
+            }).join('') + '</div>' +
+            ((itemEd.goalType || 'money') === 'money'
+              ? '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(itemEd.goal) + '" oninput="setEditItemField(\'goal\', this)" />'
+              : '<input type="number" placeholder="목표 개수 (예: 100)" value="' + esc(itemEd.goalCount) + '" oninput="setEditItemField(\'goalCount\', this)" />') +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setEditItemField(\'note\', this)">' + esc(itemEd.note) + '</textarea>' +
             '<textarea rows="2" placeholder="위시 목적 달성시 공약 (예: 완주하면 인증샷 올릴게요, 선택)" oninput="setEditItemField(\'pledge\', this)">' + esc(itemEd.pledge) + '</textarea>' +
             '<div style="display:flex; gap:8px;">' +
@@ -1868,8 +1893,10 @@
           }).join('') + '</div>' +
           '<input type="text" inputmode="numeric" placeholder="직접 입력 (원)" value="' + esc(draft.customAmount) + '" oninput="setCustomGiftAmount(this)" />' +
           // Zola의 "남은 금액 전부 커버하기"와 같은 개념 - 목표까지 얼마 안 남았을 때 한 사람이
-          // 통째로 마무리해줄 수 있게 한다. 이미 달성한 아이템이면 remaining이 0이라 버튼 자체를 뺀다.
-          (item.goalAmount - item.currentAmount > 0
+          // 통째로 마무리해줄 수 있게 한다. money 목표에서만 의미가 있다(하트/댓글 아이템의
+          // goalAmount는 자리채움값이라 "남은 금액"이라는 개념 자체가 없다) - 이미 달성한
+          // money 아이템이면 remaining이 0이라 버튼 자체를 뺀다.
+          ((item.goalType || 'money') === 'money' && item.goalAmount - item.currentAmount > 0
             ? '<button type="button" onclick="pickRemainingGiftAmount(\'' + item.id + '\')" class="btn-ghost" style="margin-top:6px; font-size:12px; padding:8px;">🎯 남은 금액 전부 보내기 (' + formatWon(item.goalAmount - item.currentAmount) + ')</button>'
             : '') +
           '<textarea rows="2" placeholder="응원 한마디를 남겨보세요" oninput="setGiftMessage(this)">' + esc(draft.message) + '</textarea>' +
@@ -1896,7 +1923,7 @@
               (item.note ? '<div style="font-size:11.5px; color:var(--text-sub); line-height:1.4; margin-top:2px; white-space:pre-wrap;">' + esc(item.note) + '</div>' : '') +
               (item.pledge ? '<div style="font-size:11.5px; color:var(--primary); font-weight:700; line-height:1.4; margin-top:2px; white-space:pre-wrap;">🤝 ' + esc(item.pledge) + '</div>' : '') +
               '<div class="gauge-track" style="margin-top:6px;"><div class="gauge-fill" style="width:' + itemPct + '%;"></div></div>' +
-              '<div class="stat-row" style="margin-top:2px;"><span class="pct">' + itemPct + '%</span><span class="amt">' + formatWon(item.currentAmount) + ' / ' + formatWon(item.goalAmount) + '</span></div>' +
+              '<div class="stat-row" style="margin-top:2px;"><span class="pct">' + itemProgress.icon + ' ' + itemPct + '%</span><span class="amt">' + itemProgress.amtText + '</span></div>' +
             '</div>' +
             itemOwnerActions +
           '</div>' +
@@ -1907,8 +1934,11 @@
     // 무신사/오늘의집 찜 리스트처럼, 이미 목표를 채운 아이템은 접어서 아직 안 채운 것들에
     // 시선이 가게 한다 - 다만 전부 다 찼거나 전부 안 찼으면(=접어서 덜어낼 게 없으면) 그냥
     // 평소대로 다 보여준다.
-    var activeItems = (wish.items || []).filter(function (i) { return i.currentAmount < i.goalAmount; });
-    var fundedItems = (wish.items || []).filter(function (i) { return i.currentAmount >= i.goalAmount; });
+    // "달성"은 아이템 자신의 목표 기준(금액이든 하트/댓글이든)이어야 한다 - 하트/댓글 아이템의
+    // goalAmount는 자리채움값이라 돈으로만 비교하면 실제 목표(하트/댓글)와 무관하게 엉뚱하게
+    // "달성"으로 접혀버린다.
+    var activeItems = (wish.items || []).filter(function (i) { return goalProgress(i).pct < 100; });
+    var fundedItems = (wish.items || []).filter(function (i) { return goalProgress(i).pct >= 100; });
     var shouldCollapseFunded = activeItems.length > 0 && fundedItems.length > 0;
     var itemsHtml = !shouldCollapseFunded
       ? (wish.items || []).map(itemBlockHtml).join('')
@@ -1937,13 +1967,6 @@
       '<input type="text" placeholder="위시 제목 *" value="' + esc(ed.title) + '" oninput="setEditWishField(\'title\', this)" />' +
       '<input type="text" placeholder="한 줄 소개" value="' + esc(ed.subtitle) + '" oninput="setEditWishField(\'subtitle\', this)" />' +
       '<input type="date" value="' + esc(ed.deadline) + '" oninput="setEditWishField(\'deadline\', this)" />' +
-      '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">🎯 목표 종류</div>' +
-      '<div style="display:flex; gap:6px;">' + GOAL_TYPES.map(function (g) {
-        return '<button type="button" class="chip' + (ed.goalType === g.type ? ' active' : '') + '" onclick="setEditWishGoalType(\'' + g.type + '\')">' + g.emoji + ' ' + g.label + '</button>';
-      }).join('') + '</div>' +
-      (ed.goalType !== 'money'
-        ? '<input type="number" placeholder="목표 개수 (예: 100)" value="' + esc(ed.goalCount) + '" oninput="setEditWishField(\'goalCount\', this)" />'
-        : '') +
       '<textarea rows="4" placeholder="희망하는 이유" oninput="setEditWishField(\'story\', this)">' + esc(ed.story) + '</textarea>' +
       '<div style="display:flex; gap:8px; margin-top:4px;">' +
         '<button class="btn-ghost" style="flex:1;" onclick="cancelEditWish()">취소</button>' +
@@ -1991,7 +2014,12 @@
         '<input type="text" placeholder="아이템 이름 * (예: 런닝화)" value="' + esc(d.name) + '" maxlength="80" oninput="setAddItemField(\'name\', this)" />' +
         '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(d.link) + '" oninput="setAddItemField(\'link\', this)" />' +
         imageManagerHtml(d.imageUrls, 'removeAddItemImage(', 'pickAddItemImage(this)', 'addAddItemImageUrl(this)') +
-        '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />' +
+        '<div style="display:flex; gap:6px;">' + GOAL_TYPES.map(function (g) {
+          return '<button type="button" class="chip' + ((d.goalType || 'money') === g.type ? ' active' : '') + '" onclick="setAddItemGoalType(\'' + g.type + '\')">' + g.emoji + ' ' + g.label + '</button>';
+        }).join('') + '</div>' +
+        ((d.goalType || 'money') === 'money'
+          ? '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(d.goal) + '" oninput="setAddItemField(\'goal\', this)" />'
+          : '<input type="number" placeholder="목표 개수 (예: 100)" value="' + esc(d.goalCount) + '" oninput="setAddItemField(\'goalCount\', this)" />') +
         '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="setAddItemField(\'note\', this)">' + esc(d.note) + '</textarea>' +
         '<textarea rows="2" placeholder="위시 목적 달성시 공약 (예: 완주하면 인증샷 올릴게요, 선택)" oninput="setAddItemField(\'pledge\', this)">' + esc(d.pledge) + '</textarea>' +
         '<div style="display:flex; gap:8px;">' +
@@ -2169,6 +2197,7 @@
       '</div>';
     } else if (w.step === 4) {
       var itemRows = w.items.map(function (it, idx) {
+        var itGoalType = it.goalType === 'hearts' || it.goalType === 'comments' ? it.goalType : 'money';
         return '' +
           '<div style="border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:6px;">' +
             '<div style="display:flex; gap:6px; align-items:center;">' +
@@ -2178,7 +2207,12 @@
             '</div>' +
             '<input type="text" placeholder="상품 링크 주소 (선택)" value="' + esc(it.link) + '" oninput="wizardSetItemField(' + idx + ', \'link\', this)" />' +
             imageManagerHtml(it.imageUrls, 'removeWizardItemImage(' + idx + ',', 'pickWizardItemImage(' + idx + ', this)', 'addWizardItemImageUrl(' + idx + ', this)') +
-            '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(it.goal) + '" oninput="wizardSetItemField(' + idx + ', \'goal\', this)" />' +
+            '<div style="display:flex; gap:6px;">' + GOAL_TYPES.map(function (g) {
+              return '<button type="button" class="chip' + (itGoalType === g.type ? ' active' : '') + '" onclick="setWizardItemGoalType(' + idx + ', \'' + g.type + '\')">' + g.emoji + ' ' + g.label + '</button>';
+            }).join('') + '</div>' +
+            (itGoalType === 'money'
+              ? '<input type="number" placeholder="가격(목표 금액, 원) *" value="' + esc(it.goal) + '" oninput="wizardSetItemField(' + idx + ', \'goal\', this)" />'
+              : '<input type="number" placeholder="목표 개수 (예: 100)" value="' + esc(it.goalCount) + '" oninput="wizardSetItemField(' + idx + ', \'goalCount\', this)" />') +
             '<textarea rows="2" placeholder="선정 배경 (이 아이템을 왜 원하는지, 선택)" oninput="wizardSetItemField(' + idx + ', \'note\', this)">' + esc(it.note) + '</textarea>' +
             '<textarea rows="2" placeholder="위시 목적 달성시 공약 (예: 완주하면 인증샷 올릴게요, 선택)" oninput="wizardSetItemField(' + idx + ', \'pledge\', this)">' + esc(it.pledge) + '</textarea>' +
           '</div>';
@@ -2187,13 +2221,6 @@
         '<input type="text" placeholder="위시 제목 * (예: 마라톤 대회 참가)" value="' + esc(w.title) + '" oninput="wizardSetField(\'title\', this)" />' +
         '<input type="text" placeholder="한 줄 소개" value="' + esc(w.subtitle) + '" oninput="wizardSetField(\'subtitle\', this)" />' +
         '<input type="number" placeholder="며칠 후 마감" value="' + esc(w.days) + '" oninput="wizardSetField(\'days\', this)" />' +
-        '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:4px;">🎯 목표 종류</div>' +
-        '<div style="display:flex; gap:6px;">' + GOAL_TYPES.map(function (g) {
-          return '<button type="button" class="chip' + (w.goalType === g.type ? ' active' : '') + '" onclick="setWizardGoalType(\'' + g.type + '\')">' + g.emoji + ' ' + g.label + '</button>';
-        }).join('') + '</div>' +
-        (w.goalType !== 'money'
-          ? '<input type="number" placeholder="목표 개수 (예: 100)" value="' + esc(w.goalCount) + '" oninput="wizardSetField(\'goalCount\', this)" />'
-          : '') +
         '<div class="option-item' + (w.isPrivate ? ' active' : '') + '" onclick="toggleWizardPrivate()"><span>🔒 나만 보기 (비공개)</span><button class="toggle' + (w.isPrivate ? ' on' : '') + '"></button></div>' +
         '<textarea id="wizard-story-input" rows="3" placeholder="희망하는 이유를 들려주세요 (예: 우승을 위한 위시 리스트예요! 여행, 마라톤, 카메라, 커피 등 키워드를 넣으면 추천 아이템도 떠요)" oninput="wizardSetStory(this)">' + esc(w.story) + '</textarea>' +
         (w.suggestedItems.length ? '<div style="display:flex; flex-wrap:wrap; gap:6px;">' + w.suggestedItems.map(function (it) { return '<button type="button" class="suggest-chip" onclick="applySuggestion(\'' + esc(it) + '\')">+ ' + esc(it) + '</button>'; }).join('') + '</div>' : '') +
@@ -2206,11 +2233,22 @@
         ? '<div class="row-top"><span style="font-size:16px;">👥</span><div class="owner">' + esc(w.groupName || '단체') + ' 위시</div><span class="dday">D-' + w.days + '</span></div>'
         : '<div class="row-top"><div class="avatar">' + avatarContentHtml(state.user.avatar) + '</div><div class="owner">' + esc(state.user.name) + '님의 위시</div><span class="dday">D-' + w.days + '</span></div>';
       var previewItems = w.items.filter(function (i) { return i.name.trim(); });
-      var previewGoalSum = previewItems.reduce(function (s, i) { return s + (Math.max(1000, Number(i.goal) || 1000)); }, 0);
-      var previewIcon = w.goalType === 'hearts' ? '❤️' : w.goalType === 'comments' ? '💬' : '💰';
-      var previewAmtText = w.goalType === 'hearts' ? ('0 / ' + (Number(w.goalCount) || 0) + '명')
-        : w.goalType === 'comments' ? ('0 / ' + (Number(w.goalCount) || 0) + '개')
-        : ('0원 / ' + formatWon(previewGoalSum));
+      // 아이템마다 목표 종류가 다를 수 있어서, 전부 같은 종류일 때만 하나의 금액/개수로 합쳐
+      // 보여주고, 섞여있으면 단위가 달라 못 더하니 아이템 개수만 보여준다.
+      var previewTypes = previewItems.map(function (i) { return i.goalType === 'hearts' || i.goalType === 'comments' ? i.goalType : 'money'; });
+      var previewSameType = previewTypes.length > 0 && previewTypes.every(function (t) { return t === previewTypes[0]; });
+      var previewIcon = !previewSameType ? '🎯' : previewTypes[0] === 'hearts' ? '❤️' : previewTypes[0] === 'comments' ? '💬' : '💰';
+      var previewAmtText;
+      if (!previewItems.length) {
+        previewAmtText = '';
+      } else if (previewSameType && previewTypes[0] === 'money') {
+        previewAmtText = '0원 / ' + formatWon(previewItems.reduce(function (s, i) { return s + Math.max(1000, Number(i.goal) || 1000); }, 0));
+      } else if (previewSameType) {
+        var unit = previewTypes[0] === 'hearts' ? '명' : '개';
+        previewAmtText = '0 / ' + previewItems.reduce(function (s, i) { return s + Math.max(1, Number(i.goalCount) || 1); }, 0) + unit;
+      } else {
+        previewAmtText = previewItems.length + '개 아이템';
+      }
       body = '' +
         '<div class="wish-card style-' + state.customization.cardStyle + '" style="margin:0;">' +
           previewOwnerRow +
@@ -2220,7 +2258,12 @@
           '<div class="stat-row"><span class="pct">' + previewIcon + ' 0% 달성</span><span class="amt">' + previewAmtText + '</span></div>' +
         '</div>' +
         '<div style="font-size:12.5px; font-weight:800; color:var(--text-sub); margin-top:6px;">🎁 아이템 ' + previewItems.length + '개</div>' +
-        previewItems.map(function (i) { return '<div class="cheer-item"><span class="who">' + esc(i.name) + '</span><span class="amt">' + formatWon(Math.max(1000, Number(i.goal) || 1000)) + '</span></div>'; }).join('') +
+        previewItems.map(function (i, idx) {
+          var t = previewTypes[idx];
+          var goalText = t === 'money' ? formatWon(Math.max(1000, Number(i.goal) || 1000))
+            : (t === 'hearts' ? '❤️ ' : '💬 ') + Math.max(1, Number(i.goalCount) || 1) + (t === 'hearts' ? '명' : '개');
+          return '<div class="cheer-item"><span class="who">' + esc(i.name) + '</span><span class="amt">' + goalText + '</span></div>';
+        }).join('') +
         '<div style="font-size:12px; color:var(--text-sub); text-align:center; margin-top:4px;">이렇게 등록돼요. 확인하고 완료를 눌러주세요!</div>';
     }
     var footer = '<div style="display:flex; gap:8px;">' +

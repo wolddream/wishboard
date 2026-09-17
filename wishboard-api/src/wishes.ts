@@ -14,8 +14,6 @@ interface WishRow {
 	category: string | null;
 	deadline: string;
 	is_private: number;
-	goal_type: string;
-	goal_count: number | null;
 	created_at: string;
 }
 interface MemberRow {
@@ -34,6 +32,8 @@ interface ItemRow {
 	pledge: string | null;
 	goal_amount: number;
 	current_amount: number;
+	goal_type: string;
+	goal_count: number | null;
 }
 interface ContributionRow {
 	id: string;
@@ -55,9 +55,22 @@ interface CommentRow {
 	created_at: string;
 }
 
+// 아이템 하나의 진행률 - goal_type이 money면 그 아이템 자체의 금액을, hearts/comments면 이
+// 위시 전체의 관심 등록 수/댓글 수를 공유해서 쓴다(아이템별로 따로 세지 않는다 - "하트 100개"
+// 아이템이 여러 개라도 하트는 위시 하나에 대한 거라 실제로는 같은 수를 가리킨다).
+function itemProgress(item: ItemRow, followerCount: number, commentCount: number) {
+	const type = item.goal_type || "money";
+	const current = type === "hearts" ? followerCount : type === "comments" ? commentCount : item.current_amount;
+	const target = type === "money" ? item.goal_amount : item.goal_count || 0;
+	const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
+	return { type, current, target, pct };
+}
+
 // 위시 하나 = 아이템 여러 개로 이루어진 "위시 리스트"(예: 마라톤 대회 참가 위시 안에 런닝화,
-// 유니폼 두 아이템). 목표/모금액은 전부 아이템 단위로 매겨지므로, 위시 카드에 보이는 전체
-// 진행률은 매번 아이템들의 합계로 계산한다(wishes 테이블엔 별도로 저장/동기화하지 않는다).
+// 유니폼 두 아이템). 예전엔 위시 전체가 목표 종류를 하나만 가졌는데, 아이템마다 다른 목표
+// (예: 하나는 금액, 하나는 하트수)를 가질 수 있게 바뀌어서 카드에 보이는 "전체 진행률"은
+// 아이템들의 진행률 %를 평균낸 값이다 - 아이템들이 전부 같은 종류면 그 종류 기준 합계를,
+// 종류가 섞여있으면 평균 %와 "완료한 아이템 수"만 보여준다(단위가 다른 값은 못 더하니까).
 function wishRowToClient(
 	row: WishRow,
 	members: MemberRow[],
@@ -69,13 +82,23 @@ function wishRowToClient(
 ) {
 	const goalAmount = items.reduce((s, i) => s + i.goal_amount, 0);
 	const currentAmount = items.reduce((s, i) => s + i.current_amount, 0);
-	// goal_type이 money가 아니어도 아이템 선물하기는 그대로 병행되므로 goalAmount/currentAmount는
-	// 항상 계산해둔다 - progress는 그중 카드/상세의 진행률 %를 실제로 무엇으로 그릴지("금액" |
-	// "하트수" | "댓글수")만 따로 뽑아낸 것이다.
-	const goalType = row.goal_type || "money";
-	const progressCurrent = goalType === "hearts" ? followerCount : goalType === "comments" ? comments.length : currentAmount;
-	const progressTarget = goalType === "money" ? goalAmount : row.goal_count || 0;
-	const progressPct = progressTarget > 0 ? Math.min(100, Math.round((progressCurrent / progressTarget) * 100)) : 0;
+	const itemProgresses = items.map((i) => itemProgress(i, followerCount, comments.length));
+	const overallPct = itemProgresses.length ? Math.round(itemProgresses.reduce((s, p) => s + p.pct, 0) / itemProgresses.length) : 0;
+	const uniqueTypes = new Set(itemProgresses.map((p) => p.type));
+	const sameType = uniqueTypes.size <= 1;
+	const wishProgress = sameType
+		? {
+				pct: overallPct,
+				type: itemProgresses[0]?.type || "money",
+				current: itemProgresses.reduce((s, p) => s + p.current, 0),
+				target: itemProgresses.reduce((s, p) => s + p.target, 0),
+		  }
+		: {
+				pct: overallPct,
+				type: "mixed",
+				completedItems: itemProgresses.filter((p) => p.pct >= 100).length,
+				totalItems: itemProgresses.length,
+		  };
 	return {
 		id: row.id,
 		ownerId: row.owner_id,
@@ -91,9 +114,7 @@ function wishRowToClient(
 		category: row.category || "",
 		goalAmount,
 		currentAmount,
-		goalType,
-		goalCount: row.goal_count,
-		progress: { current: progressCurrent, target: progressTarget, pct: progressPct },
+		progress: wishProgress,
 		followerCount,
 		following,
 		isPrivate: !!row.is_private,
@@ -106,7 +127,7 @@ function wishRowToClient(
 			text: c.text,
 			at: c.created_at,
 		})),
-		items: items.map((i) => ({
+		items: items.map((i, idx) => ({
 			id: i.id,
 			name: i.name,
 			link: i.link || "",
@@ -115,6 +136,9 @@ function wishRowToClient(
 			pledge: i.pledge || "",
 			goalAmount: i.goal_amount,
 			currentAmount: i.current_amount,
+			goalType: i.goal_type || "money",
+			goalCount: i.goal_count,
+			progress: itemProgresses[idx],
 		})),
 		contributions: contributions.map((c) => ({
 			id: c.id,
@@ -139,8 +163,7 @@ export async function handleGetWishes(env: Env, userId?: string | null): Promise
 		`SELECT w.id as id, w.owner_id as owner_id, COALESCE(u.name, w.owner_name) as owner_name,
 		        COALESCE(u.avatar, w.owner_avatar) as owner_avatar, w.type as type, w.group_name as group_name,
 		        w.title as title, w.subtitle as subtitle, w.story as story, w.emoji as emoji, w.category as category,
-		        w.deadline as deadline, w.is_private as is_private, w.goal_type as goal_type, w.goal_count as goal_count,
-		        w.created_at as created_at
+		        w.deadline as deadline, w.is_private as is_private, w.created_at as created_at
 		 FROM wishes w
 		 LEFT JOIN users u ON u.id = w.owner_id
 		 WHERE w.is_private = 0 OR w.owner_id = ?
@@ -166,7 +189,7 @@ export async function handleGetWishes(env: Env, userId?: string | null): Promise
 		env.DB.prepare(`SELECT id, wish_id, item_id, from_user_id, from_name, amount, message, anonymous, created_at FROM contributions WHERE wish_id IN (${placeholders}) ORDER BY created_at DESC`)
 			.bind(...ids)
 			.all<ContributionRow>(),
-		env.DB.prepare(`SELECT id, wish_id, name, link, image_url, note, pledge, goal_amount, current_amount FROM wish_items WHERE wish_id IN (${placeholders}) ORDER BY sort_order, created_at`)
+		env.DB.prepare(`SELECT id, wish_id, name, link, image_url, note, pledge, goal_amount, current_amount, goal_type, goal_count FROM wish_items WHERE wish_id IN (${placeholders}) ORDER BY sort_order, created_at`)
 			.bind(...ids)
 			.all<ItemRow>(),
 		env.DB.prepare(`SELECT wish_id, COUNT(*) as c FROM wish_follows WHERE wish_id IN (${placeholders}) GROUP BY wish_id`)
@@ -235,19 +258,18 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 		category?: string;
 		deadline?: string;
 		is_private?: boolean;
-		goal_type?: string;
-		goal_count?: number;
-		items?: Array<{ name?: string; link?: string; image_urls?: string[]; note?: string; pledge?: string; goal_amount?: number }>;
+		items?: Array<{ name?: string; link?: string; image_urls?: string[]; note?: string; pledge?: string; goal_amount?: number; goal_type?: string; goal_count?: number }>;
 	};
-	const items = (body.items || []).filter((i) => i && i.name && i.name.trim() && Number(i.goal_amount) >= 1000);
+	// 목표 종류(금액/하트수/댓글수)는 위시 전체가 아니라 아이템별로 고른다 - 금액 아이템은
+	// 1,000원 이상, 하트/댓글 아이템은 목표 개수 1개 이상이 있어야 유효한 아이템으로 친다.
+	const items = (body.items || []).filter((i) => {
+		if (!i || !i.name || !i.name.trim()) return false;
+		const type = i.goal_type === "hearts" || i.goal_type === "comments" ? i.goal_type : "money";
+		return type === "money" ? Number(i.goal_amount) >= 1000 : Number(i.goal_count) >= 1;
+	});
 	if (!body.owner_id || !body.title || !body.deadline || items.length === 0) {
-		return json({ error: "owner_id, title, deadline, items(최소 1개, 이름+1000원 이상) are required" }, 400);
+		return json({ error: "owner_id, title, deadline, items(최소 1개, 이름+목표 필요) are required" }, 400);
 	}
-	const goalType = ["money", "hearts", "comments"].includes(body.goal_type || "") ? (body.goal_type as string) : "money";
-	if (goalType !== "money" && !(Number(body.goal_count) >= 1)) {
-		return json({ error: "하트/댓글 목표는 1개 이상의 목표 개수가 필요해요" }, 400);
-	}
-	const goalCount = goalType === "money" ? null : Math.round(Number(body.goal_count));
 	const isGroup = body.type === "group";
 	const wishId = uid("w");
 
@@ -255,14 +277,17 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 
 	// wishes.goal_amount/current_amount는 이제 실제로 쓰이지 않는다(진행률은 매번 아이템
 	// 합계로 계산한다) - 다만 그 두 컬럼이 여전히 NOT NULL이라, 값을 안 채우면 INSERT 자체가
-	// SQLITE_CONSTRAINT_NOTNULL로 실패한다. 아이템 목표금액 합계를 그대로 채워 넣는다.
-	const itemGoals = items.map((item) => Math.max(1000, Math.round(Number(item.goal_amount) || 1000)));
-	const totalGoal = itemGoals.reduce((s, g) => s + g, 0);
+	// SQLITE_CONSTRAINT_NOTNULL로 실패한다. 하트/댓글 목표 아이템은 금액이 의미 없어 1000을
+	// 기술적 자리채움값으로 넣는다(화면엔 goal_type이 money일 때만 가격으로 노출된다).
+	const itemGoalTypes = items.map((item) => (item.goal_type === "hearts" || item.goal_type === "comments" ? item.goal_type : "money"));
+	const itemGoalAmounts = items.map((item, idx) => (itemGoalTypes[idx] === "money" ? Math.max(1000, Math.round(Number(item.goal_amount) || 1000)) : 1000));
+	const itemGoalCounts = items.map((item, idx) => (itemGoalTypes[idx] === "money" ? null : Math.max(1, Math.round(Number(item.goal_count) || 1))));
+	const totalGoal = itemGoalAmounts.reduce((s, g) => s + g, 0);
 
 	const statements = [
 		env.DB.prepare(
-			`INSERT INTO wishes (id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category, goal_amount, current_amount, deadline, is_private, goal_type, goal_count)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+			`INSERT INTO wishes (id, owner_id, owner_name, owner_avatar, type, group_name, title, subtitle, story, emoji, category, goal_amount, current_amount, deadline, is_private)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
 		).bind(
 			wishId,
 			body.owner_id,
@@ -277,14 +302,14 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 			body.category || "",
 			totalGoal,
 			body.deadline,
-			body.is_private ? 1 : 0,
-			goalType,
-			goalCount
+			body.is_private ? 1 : 0
 		),
 	];
 	items.forEach((item, idx) => {
 		statements.push(
-			env.DB.prepare(`INSERT INTO wish_items (id, wish_id, name, link, image_url, note, pledge, goal_amount, current_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`).bind(
+			env.DB.prepare(
+				`INSERT INTO wish_items (id, wish_id, name, link, image_url, note, pledge, goal_amount, current_amount, sort_order, goal_type, goal_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+			).bind(
 				uid("i"),
 				wishId,
 				(item.name || "").trim().slice(0, 80),
@@ -292,8 +317,10 @@ export async function handlePostWish(request: Request, env: Env): Promise<Respon
 				serializeImageUrls(item.image_urls),
 				(item.note || "").trim().slice(0, 500),
 				(item.pledge || "").trim().slice(0, 300),
-				itemGoals[idx],
-				idx
+				itemGoalAmounts[idx],
+				idx,
+				itemGoalTypes[idx],
+				itemGoalCounts[idx]
 			)
 		);
 	});
@@ -340,10 +367,8 @@ export async function handlePatchWish(request: Request, env: Env, wishId: string
 		subtitle?: string;
 		story?: string;
 		deadline?: string;
-		goal_type?: string;
-		goal_count?: number;
 	};
-	const wish = await env.DB.prepare(`SELECT owner_id, goal_type, goal_count FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string; goal_type: string; goal_count: number | null }>();
+	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "수정 권한이 없어요" }, 403);
 	if (!body.title || !body.deadline) return json({ error: "title, deadline are required" }, 400);
@@ -351,15 +376,9 @@ export async function handlePatchWish(request: Request, env: Env, wishId: string
 	// 직접 골라 넣다 보니 이 방어가 빠져 있었다 - 과거로 바꾸면 "마감 지남" 상태로 고정돼버린다.
 	const todayStr = new Date().toISOString().slice(0, 10);
 	if (body.deadline < todayStr) return json({ error: "마감일은 오늘 이후로 설정해주세요" }, 400);
-	// goal_type을 안 보내면(예전 클라이언트) 기존 값을 그대로 유지한다.
-	const goalType = body.goal_type !== undefined ? (["money", "hearts", "comments"].includes(body.goal_type) ? body.goal_type : "money") : wish.goal_type;
-	if (goalType !== "money" && !(Number(body.goal_count ?? wish.goal_count) >= 1)) {
-		return json({ error: "하트/댓글 목표는 1개 이상의 목표 개수가 필요해요" }, 400);
-	}
-	const goalCount = goalType === "money" ? null : Math.round(Number(body.goal_count ?? wish.goal_count));
 
-	await env.DB.prepare(`UPDATE wishes SET title = ?, subtitle = ?, story = ?, deadline = ?, goal_type = ?, goal_count = ? WHERE id = ?`)
-		.bind(body.title, body.subtitle || "", body.story || "", body.deadline, goalType, goalCount, wishId)
+	await env.DB.prepare(`UPDATE wishes SET title = ?, subtitle = ?, story = ?, deadline = ? WHERE id = ?`)
+		.bind(body.title, body.subtitle || "", body.story || "", body.deadline, wishId)
 		.run();
 
 	return json({ ok: true });
@@ -383,18 +402,35 @@ export async function handleSetWishVisibility(request: Request, env: Env, wishId
 // 이미 등록된 위시에 아이템을 하나 더 추가한다(예: "마라톤 대회 참가"에 나중에 "양말" 추가) -
 // 기존 아이템/선물에는 손대지 않으므로 handlePatchWish와 달리 안전하게 언제든 가능하다.
 export async function handleAddWishItem(request: Request, env: Env, wishId: string): Promise<Response> {
-	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_urls?: string[]; note?: string; pledge?: string; goal_amount?: number };
+	const body = (await request.json()) as {
+		user_id?: string;
+		name?: string;
+		link?: string;
+		image_urls?: string[];
+		note?: string;
+		pledge?: string;
+		goal_amount?: number;
+		goal_type?: string;
+		goal_count?: number;
+	};
 	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "아이템 추가 권한이 없어요" }, 403);
-	if (!body.name || !body.name.trim() || !(Number(body.goal_amount) >= 1000)) {
+	const goalType = body.goal_type === "hearts" || body.goal_type === "comments" ? body.goal_type : "money";
+	if (!body.name || !body.name.trim()) return json({ error: "아이템 이름이 필요해요" }, 400);
+	if (goalType === "money" && !(Number(body.goal_amount) >= 1000)) {
 		return json({ error: "아이템 이름과 1,000원 이상의 가격이 필요해요" }, 400);
+	}
+	if (goalType !== "money" && !(Number(body.goal_count) >= 1)) {
+		return json({ error: "하트/댓글 목표는 1개 이상의 목표 개수가 필요해요" }, 400);
 	}
 
 	const { results: countRows } = await env.DB.prepare(`SELECT COUNT(*) as c FROM wish_items WHERE wish_id = ?`).bind(wishId).all<{ c: number }>();
 	const sortOrder = countRows[0]?.c ?? 0;
 	const itemId = uid("i");
-	await env.DB.prepare(`INSERT INTO wish_items (id, wish_id, name, link, image_url, note, pledge, goal_amount, current_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`)
+	await env.DB.prepare(
+		`INSERT INTO wish_items (id, wish_id, name, link, image_url, note, pledge, goal_amount, current_amount, sort_order, goal_type, goal_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+	)
 		.bind(
 			itemId,
 			wishId,
@@ -403,8 +439,10 @@ export async function handleAddWishItem(request: Request, env: Env, wishId: stri
 			serializeImageUrls(body.image_urls),
 			(body.note || "").trim().slice(0, 500),
 			(body.pledge || "").trim().slice(0, 300),
-			Math.max(1000, Math.round(Number(body.goal_amount))),
-			sortOrder
+			goalType === "money" ? Math.max(1000, Math.round(Number(body.goal_amount))) : 1000,
+			sortOrder,
+			goalType,
+			goalType === "money" ? null : Math.max(1, Math.round(Number(body.goal_count)))
 		)
 		.run();
 
@@ -414,16 +452,31 @@ export async function handleAddWishItem(request: Request, env: Env, wishId: stri
 // 아이템 하나를 수정한다(이름/링크/이미지/가격) - owner만. 이미 모인 금액보다 가격을 낮출 수는
 // 없다(handlePatchWish의 목표금액 보호와 같은 이유).
 export async function handlePatchWishItem(request: Request, env: Env, wishId: string, itemId: string): Promise<Response> {
-	const body = (await request.json()) as { user_id?: string; name?: string; link?: string; image_urls?: string[]; note?: string; pledge?: string; goal_amount?: number };
+	const body = (await request.json()) as {
+		user_id?: string;
+		name?: string;
+		link?: string;
+		image_urls?: string[];
+		note?: string;
+		pledge?: string;
+		goal_amount?: number;
+		goal_type?: string;
+		goal_count?: number;
+	};
 	const wish = await env.DB.prepare(`SELECT owner_id FROM wishes WHERE id = ?`).bind(wishId).first<{ owner_id: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "수정 권한이 없어요" }, 403);
 	const item = await env.DB.prepare(`SELECT current_amount FROM wish_items WHERE id = ? AND wish_id = ?`).bind(itemId, wishId).first<{ current_amount: number }>();
 	if (!item) return json({ error: "item not found" }, 404);
 	if (!body.name || !body.name.trim()) return json({ error: "아이템 이름이 필요해요" }, 400);
+	const goalType = body.goal_type === "hearts" || body.goal_type === "comments" ? body.goal_type : "money";
+	if (goalType !== "money" && !(Number(body.goal_count) >= 1)) {
+		return json({ error: "하트/댓글 목표는 1개 이상의 목표 개수가 필요해요" }, 400);
+	}
 
-	const goalAmount = Math.max(item.current_amount, Math.round(Number(body.goal_amount) || item.current_amount || 1000));
-	await env.DB.prepare(`UPDATE wish_items SET name = ?, link = ?, image_url = ?, note = ?, pledge = ?, goal_amount = ? WHERE id = ?`)
+	const goalAmount = goalType === "money" ? Math.max(item.current_amount, Math.round(Number(body.goal_amount) || item.current_amount || 1000)) : Math.max(item.current_amount, 1000);
+	const goalCount = goalType === "money" ? null : Math.max(1, Math.round(Number(body.goal_count)));
+	await env.DB.prepare(`UPDATE wish_items SET name = ?, link = ?, image_url = ?, note = ?, pledge = ?, goal_amount = ?, goal_type = ?, goal_count = ? WHERE id = ?`)
 		.bind(
 			body.name.trim().slice(0, 80),
 			(body.link || "").trim().slice(0, 500),
@@ -431,6 +484,8 @@ export async function handlePatchWishItem(request: Request, env: Env, wishId: st
 			(body.note || "").trim().slice(0, 500),
 			(body.pledge || "").trim().slice(0, 300),
 			goalAmount,
+			goalType,
+			goalCount,
 			itemId
 		)
 		.run();
@@ -515,14 +570,18 @@ export async function handlePostGift(request: Request, env: Env, wishId: string)
 		.first<{ id: string; owner_id: string; owner_name: string; title: string; type: string }>();
 	if (!wish) return json({ error: "wish not found" }, 404);
 
-	const item = await env.DB.prepare(`SELECT id, name, goal_amount, current_amount FROM wish_items WHERE id = ? AND wish_id = ?`)
+	const item = await env.DB.prepare(`SELECT id, name, goal_amount, current_amount, goal_type FROM wish_items WHERE id = ? AND wish_id = ?`)
 		.bind(body.item_id, wishId)
-		.first<{ id: string; name: string; goal_amount: number; current_amount: number }>();
+		.first<{ id: string; name: string; goal_amount: number; current_amount: number; goal_type: string }>();
 	if (!item) return json({ error: "item not found" }, 404);
 
+	// goal_type이 money가 아닌 아이템의 goal_amount는 1000짜리 기술적 자리채움값이라(진행률은
+	// 하트/댓글로 계산되니까), 그 값으로 선물 금액을 캡핑하면 자리채움값을 넘는 순간부터 선물이
+	// 전부 막혀버린다("돈+하트/댓글 병행"이 깨진다) - money 아이템만 목표금액으로 캡핑한다.
+	const isMoneyGoal = (item.goal_type || "money") === "money";
 	// 목표금액을 넘는 만큼은 반영하지 않는다 - 클라이언트에도 같은 로직이 있지만, 서버가 최종
 	// 진실이어야 여러 사람이 거의 동시에 보태도 진행률이 100%를 넘지 않는다.
-	const remaining = item.goal_amount - item.current_amount;
+	const remaining = isMoneyGoal ? item.goal_amount - item.current_amount : amount;
 	const applied = Math.min(amount, Math.max(0, remaining));
 	if (applied <= 0) return json({ error: "이미 목표금액을 달성한 아이템이에요" }, 400);
 
@@ -545,8 +604,11 @@ export async function handlePostGift(request: Request, env: Env, wishId: string)
 		// 제한한다 - applied는 위에서 미리 읽어둔(그새 stale해질 수 있는) current_amount로 계산했으니,
 		// 두 사람이 거의 동시에 거의 다 찬 아이템에 보태면 둘 다 "여유 있음"으로 계산해 목표치를
 		// 넘길 수 있다. UPDATE 시점의 실제(라이브) current_amount 기준으로 다시 한번 잘라내야
-		// D1이 요청을 순서대로 처리해도 절대 목표금액을 못 넘는다.
-		env.DB.prepare(`UPDATE wish_items SET current_amount = MIN(goal_amount, current_amount + ?) WHERE id = ? RETURNING current_amount`).bind(applied, item.id),
+		// D1이 요청을 순서대로 처리해도 절대 목표금액을 못 넘는다. money 아이템만 해당 - 하트/
+		// 댓글 아이템은 goal_amount가 자리채움값이라 그걸로 캡핑하면 안 된다.
+		isMoneyGoal
+			? env.DB.prepare(`UPDATE wish_items SET current_amount = MIN(goal_amount, current_amount + ?) WHERE id = ? RETURNING current_amount`).bind(applied, item.id)
+			: env.DB.prepare(`UPDATE wish_items SET current_amount = current_amount + ? WHERE id = ? RETURNING current_amount`).bind(applied, item.id),
 	];
 
 	// 위시 소유자(+ 단체 위시면 멤버 전원, 보낸 사람 본인은 제외)에게 알림을 남긴다.
