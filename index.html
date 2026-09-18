@@ -167,6 +167,11 @@
   .detail-page {
     position: fixed; inset: 0; z-index: 110; background: var(--bg); overflow-y: auto;
     display: flex; flex-direction: column; gap: 14px; padding: 14px 18px calc(18px + env(safe-area-inset-bottom));
+    /* #app-frame과 똑같이 460px로 가운데 정렬 - position:fixed는 부모(#app-frame)의
+       max-width를 안 물려받고 항상 뷰포트 기준으로 퍼지기 때문에, PC 화면에서 홈은
+       460px로 고정돼 있는데 위시 상세/채팅(같은 클래스를 쓴다)만 화면을 꽉 채우는
+       문제가 있었다. background가 body와 같은 --bg라 양옆 여백도 이어져 보인다. */
+    width: 100%; max-width: 460px; margin: 0 auto;
   }
 
   /* 로그인 게이트 - renderApp()이 다른 모든 화면 대신 이것만 그린다(카카오 로그인 전엔
