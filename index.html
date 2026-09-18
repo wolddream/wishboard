@@ -143,10 +143,14 @@
     position: fixed; inset: 0; background: rgba(20,18,14,0.45); z-index: 100; display: flex; align-items: flex-end;
     justify-content: center;
   }
+  /* .detail-page와 같은 이유로 등장 애니메이션을 뺐다 - render()가 #root를 통째로 다시
+     그려서 .bottom-sheet도 매번 "새" 엘리먼트가 되는데, 위시 만들기(희망하는 이유 입력칸)
+     처럼 타이핑할 때마다 render()가 불리는 곳에 애니메이션을 걸어두면 한 글자 칠 때마다
+     시트가 다시 슬라이드업되는 것처럼 보여 화면이 깜빡이는 버그가 있었다. */
   .bottom-sheet {
     width: 100%; max-width: 460px; max-height: 90dvh; overflow-y: auto; background: var(--bg);
     border-radius: 22px 22px 0 0; padding: 10px 18px calc(18px + env(safe-area-inset-bottom));
-    display: flex; flex-direction: column; gap: 14px; animation: sheet-up 0.28s cubic-bezier(0.2,0.8,0.3,1);
+    display: flex; flex-direction: column; gap: 14px;
   }
   /* 카카오페이/토스 바텀시트의 대표적인 시각 신호인 드래그 핸들 바 - 실제 드래그로 닫는 기능은
      없지만("✕" 버튼으로 닫음), 시트라는 것을 한눈에 알아보게 하는 장식. 스크롤해도 맨 위에
@@ -155,7 +159,6 @@
     content: ''; display: block; width: 40px; height: 4px; border-radius: 999px; background: var(--border);
     margin: 2px auto 4px; flex-shrink: 0; position: sticky; top: 0;
   }
-  @keyframes sheet-up { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   .sheet-head { display: flex; justify-content: space-between; align-items: center; }
   .sheet-head h2 { font-size: 16px; font-weight: 900; margin: 0; }
 
