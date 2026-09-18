@@ -2048,7 +2048,7 @@
           '<div class="option-item' + (draft.anonymous ? ' active' : '') + '" onclick="toggleGiftAnonymous()"><span>🙈 익명으로 보내기</span><button class="toggle' + (draft.anonymous ? ' on' : '') + '"></button></div>' +
           '<div style="display:flex; gap:8px;">' +
             '<button class="btn-ghost" style="flex:1;" onclick="closeItemGift()">취소</button>' +
-            '<button class="btn-primary" style="flex:2;" ' + (state.ui.sendingGift ? 'disabled' : '') + ' onclick="sendGift()">' + (state.ui.sendingGift ? '⏳ 보내는 중...' : '💛 카카오페이로 보태기') + '</button>' +
+            '<button class="btn-primary" style="flex:2; background:#C4AEEF; color:#3D2B63;" ' + (state.ui.sendingGift ? 'disabled' : '') + ' onclick="sendGift()">' + (state.ui.sendingGift ? '⏳ 보내는 중...' : '💜 카카오페이로 보태기') + '</button>' +
           '</div>' +
         '</div>' : '';
 
@@ -2072,7 +2072,8 @@
             '</div>' +
             itemOwnerActions +
           '</div>' +
-          (!isOpen ? '<button class="btn-primary" style="width:100%; margin-top:8px;" onclick="openItemGift(\'' + item.id + '\')">💛 이 아이템에 선물하기</button>' : '') +
+          // "카카오톡으로 공유하기"와 같은 노란색이라 헷갈렸다 - 선물하기는 연보라로 구분.
+          (!isOpen ? '<button class="btn-primary" style="width:100%; margin-top:8px; background:#C4AEEF; color:#3D2B63;" onclick="openItemGift(\'' + item.id + '\')">💜 이 아이템에 선물하기</button>' : '') +
           giftHere +
         '</div>';
     }
