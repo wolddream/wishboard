@@ -1729,7 +1729,7 @@
         '<div class="title">' + wish.emoji + ' ' + esc(wish.title) + (wish.isPrivate ? ' 🔒' : '') + '</div>' +
         '<div class="subtitle">' + esc(wish.subtitle) + '</div>' +
         '<div class="gauge-track"><div class="gauge-fill" style="width:' + pct + '%;"></div><div class="gauge-tick"></div></div>' +
-        '<div class="stat-row"><span class="pct">' + progress.icon + ' ' + pct + '% 달성' + (backers ? ' · 🎉 ' + backers + '명 참여' : '') + '</span><span class="amt">' + progress.amtText + '</span></div>' +
+        '<div class="stat-row"><span class="pct">' + progress.icon + ' ' + pct + '% 달성 · 🎁 ' + (wish.items || []).length + '개' + (backers ? ' · 🎉 ' + backers + '명 참여' : '') + '</span><span class="amt">' + progress.amtText + '</span></div>' +
       '</div>';
   }
 
