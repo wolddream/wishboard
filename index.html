@@ -1790,8 +1790,10 @@
     // 배지를 안 붙인다.
     var categoryCounts = {};
     state.wishes.forEach(function (w) { var k = wishCategoryKey(w); categoryCounts[k] = (categoryCounts[k] || 0) + 1; });
-    var totalLine = '<div style="padding:0 16px 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">' +
-      '<span style="font-size:11.5px; color:var(--text-sub); font-weight:700;">전체 <b style="color:var(--text); font-weight:900;">' + state.wishes.length + '개</b>의 위시가 등록되어 있어요</span>' +
+    // 전체 개수/카테고리별 개수 배지는 평소엔 정보량이 많아 복잡해 보이므로, "참여한 것만"
+    // 필터를 켰을 때만 (몇 개 중 몇 개가 내가 참여한 건지 감이 필요해지는 시점) 보여준다.
+    var totalLine = '<div style="padding:0 16px 8px; display:flex; align-items:center; justify-content:' + (state.ui.onlyMine ? 'space-between' : 'flex-end') + '; gap:8px;">' +
+      (state.ui.onlyMine ? '<span style="font-size:11.5px; color:var(--text-sub); font-weight:700;">전체 <b style="color:var(--text); font-weight:900;">' + state.wishes.length + '개</b>의 위시가 등록되어 있어요</span>' : '') +
       '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
         '<button class="chip' + (state.ui.onlyMine ? ' active' : '') + '" onclick="toggleOnlyMine()">👤 참여한 것만</button>' +
         '<select onchange="setSortMode(this.value)" style="padding:6px 10px; border-radius:999px; border:none; background:#F0EEE7; color:var(--text-sub); font-size:12px; font-weight:700;">' +
@@ -1802,7 +1804,7 @@
     '</div>';
     var chips = CATEGORY_FILTERS.map(function (c) {
       var count = c.type === 'all' ? state.wishes.length : c.type === 'trending' ? null : (categoryCounts[c.type] || 0);
-      var badge = count === null ? '' : '<span class="cnt-badge">' + count + '</span>';
+      var badge = (count === null || !state.ui.onlyMine) ? '' : '<span class="cnt-badge">' + count + '</span>';
       return '<button class="chip' + (state.ui.categoryFilter === c.type ? ' active' : '') + '" onclick="setCategoryFilter(\'' + c.type + '\')">' + esc(c.label) + badge + '</button>';
     }).join('');
     var cards = state.ui.loading
