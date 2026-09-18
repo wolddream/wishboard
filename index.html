@@ -47,6 +47,8 @@
     font-size: 12.5px; font-weight: 700; background: #F0EEE7; color: var(--text-sub); border: none; white-space: nowrap;
   }
   .chip.active { background: var(--primary); color: var(--primary-text); }
+  .cnt-badge { padding: 1px 5px; border-radius: 999px; background: rgba(0,0,0,0.08); font-size: 10px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .chip.active .cnt-badge { background: rgba(60,30,30,0.14); }
   /* 칩이 화면 너비보다 많아 잘리는데 스크롤할 수 있다는 힌트가 없어 "도전" 뒤로 더 있는 걸
      놓치기 쉬웠다 - 오른쪽 끝을 살짝 페이드시켜 더 있다는 걸 암시한다. */
   .scroll-x {
@@ -368,6 +370,7 @@
     { type: 'housewarming', label: '집들이·독립', emoji: '🏠', color: '#E0A25B' },
     { type: 'challenge', label: '도전·버킷리스트', emoji: '🏃', color: '#E0617A' },
     { type: 'anniversary', label: '기념일·이벤트', emoji: '💍', color: '#A67AD1' },
+    { type: 'etc', label: '기타', emoji: '🎁', color: '#9C9585' },
   ];
 
   var TEMPLATES = {
@@ -448,6 +451,7 @@
     { type: 'housewarming', label: '🏠 집들이' },
     { type: 'challenge', label: '🏃 도전' },
     { type: 'anniversary', label: '💍 기념일' },
+    { type: 'etc', label: '🎁 기타' },
   ];
 
   function uid(prefix) { return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -1251,6 +1255,13 @@
     w.title = '';
     w.subtitle = '';
     w.items = [{ name: '', link: '', imageUrls: [], note: '', pledge: '', goal: '', goalType: 'money', goalCount: '' }];
+    // 2단계(테마 선택) 자체를 건너뛰고 여기로 바로 오면 occasion이 아직 없다 - "기타"로
+    // 채워둬야 카테고리 서머리/필터에서 빠지지 않고 "기타" 칸에 잡힌다. 3단계에서 테마를
+    // 이미 고르고 템플릿만 건너뛴 경우엔 그 occasion을 그대로 둔다.
+    if (!w.occasion) {
+      w.occasion = 'etc';
+      w.emoji = '🎁';
+    }
     w.step = 4;
     render();
   };
@@ -1714,11 +1725,16 @@
       '</div>';
   }
 
+  // 카테고리가 비어있는 위시(위저드 2단계를 건너뛴 옛날 데이터 포함)는 "기타"로 친다 -
+  // 서머리 배지 합계가 "전체" 숫자와 항상 맞아떨어지게 하려면 모든 위시가 어딘가 한
+  // 카테고리엔 꼭 속해야 한다.
+  function wishCategoryKey(w) { return w.category || 'etc'; }
+
   function renderHome() {
     var query = (state.ui.homeSearch || '').trim().toLowerCase();
     var isTrending = state.ui.categoryFilter === 'trending';
     var filtered = state.wishes.filter(function (w) {
-      if (!isTrending && state.ui.categoryFilter !== 'all' && w.category !== state.ui.categoryFilter) return false;
+      if (!isTrending && state.ui.categoryFilter !== 'all' && wishCategoryKey(w) !== state.ui.categoryFilter) return false;
       if (!query) return true;
       return (w.title || '').toLowerCase().indexOf(query) >= 0 ||
         (w.subtitle || '').toLowerCase().indexOf(query) >= 0 ||
@@ -1733,15 +1749,22 @@
       '<input id="home-search-input" type="text" placeholder="🔍 위시 제목, 소개, 만든 사람 검색" value="' + esc(state.ui.homeSearch) + '" oninput="onHomeSearchInput(this)" ' +
         'style="width:100%; padding:11px 14px; border:1px solid var(--border); border-radius:12px; background:var(--card); font-size:13.5px;" />' +
       '</div>';
+    // 카테고리별 등재 개수 서머리 - "🔥 급상승"은 실제 카테고리가 아니라 정렬 기준이라
+    // 배지를 안 붙인다.
+    var categoryCounts = {};
+    state.wishes.forEach(function (w) { var k = wishCategoryKey(w); categoryCounts[k] = (categoryCounts[k] || 0) + 1; });
+    var totalLine = '<div style="padding:0 16px 8px; font-size:11.5px; color:var(--text-sub); font-weight:700;">전체 <b style="color:var(--text); font-weight:900;">' + state.wishes.length + '개</b>의 위시가 등록되어 있어요</div>';
     var chips = CATEGORY_FILTERS.map(function (c) {
-      return '<button class="chip' + (state.ui.categoryFilter === c.type ? ' active' : '') + '" onclick="setCategoryFilter(\'' + c.type + '\')">' + esc(c.label) + '</button>';
+      var count = c.type === 'all' ? state.wishes.length : c.type === 'trending' ? null : (categoryCounts[c.type] || 0);
+      var badge = count === null ? '' : '<span class="cnt-badge">' + count + '</span>';
+      return '<button class="chip' + (state.ui.categoryFilter === c.type ? ' active' : '') + '" onclick="setCategoryFilter(\'' + c.type + '\')">' + esc(c.label) + badge + '</button>';
     }).join('');
     var cards = state.ui.loading
       ? '<div class="empty-state">⏳<br/>위시 불러오는 중...</div>'
       : (filtered.length ? filtered.map(wishCardHtml).join('') : query
           ? '<div class="empty-state">🔍<br/>검색 결과가 없어요</div>'
           : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요<br/>+ 버튼으로 첫 위시를 만들어보세요!</div>');
-    return cheerTickerHtml() + searchBar + '<div class="scroll-x">' + chips + '</div>' + cards;
+    return cheerTickerHtml() + searchBar + totalLine + '<div class="scroll-x">' + chips + '</div>' + cards;
   }
 
   function renderNotifications() {
