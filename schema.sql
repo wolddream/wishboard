@@ -70,7 +70,9 @@ CREATE TABLE IF NOT EXISTS contributions (
   amount INTEGER NOT NULL,
   message TEXT,
   anonymous INTEGER DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  thanked_at DATETIME -- 주인이 "고마워요"를 보낸 시각(NULL이면 아직 안 보냄) - 예전엔 세션에만
+                       -- 기록해서 새로고침하면 다시 보낼 수 있었다.
 );
 CREATE INDEX IF NOT EXISTS idx_contributions_wish ON contributions(wish_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_contributions_item ON contributions(item_id);

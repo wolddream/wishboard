@@ -250,6 +250,7 @@
   /* Guestbook / timeline */
   .cheer-item { display: flex; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); }
   .cheer-item:last-child { border-bottom: none; }
+  .cheer-item .kind-badge { font-size: 12px; flex-shrink: 0; }
   .cheer-item .who { font-size: 12px; font-weight: 800; }
   .cheer-item .msg { font-size: 12px; color: var(--text-sub); margin-top: 1px; }
   .cheer-item .amt { margin-left: auto; font-size: 12px; font-weight: 900; color: var(--text); white-space: nowrap; }
@@ -534,8 +535,8 @@
         customizeOpen: false, toast: null, cheerTickerIndex: 0, loading: true, editWishDraft: null, savingWishEdit: false,
         homeSearch: '', addItemDraft: null, savingAddItem: false, editItemDraft: null, savingEditItem: false,
         chatWishId: null, chatMessages: null, chatDraft: '',
-        imageViewer: null, avatarPickerOpen: false, showFundedItems: false, thankedContributions: {},
-        wishCommentDraft: '', expandedGiftMonths: {},
+        imageViewer: null, avatarPickerOpen: false, showFundedItems: false,
+        wishCommentDraft: '', expandedGiftMonths: {}, sortMode: 'latest', onlyMine: false,
       },
     };
   }
@@ -675,6 +676,8 @@
   // ============ Actions ============
   window.setTab = function (tab) { state.ui.tab = tab; render(); };
   window.setCategoryFilter = function (c) { state.ui.categoryFilter = c; render(); };
+  window.toggleOnlyMine = function () { state.ui.onlyMine = !state.ui.onlyMine; render(); };
+  window.setSortMode = function (mode) { state.ui.sortMode = mode; render(); };
   window.onHomeSearchInput = function (el) { state.ui.homeSearch = el.value; render(); };
 
   // 위시 상세는 바텀시트 팝업이 아니라 진짜 "페이지 이동"처럼 동작해야 해서(뒤로가기로
@@ -1154,17 +1157,25 @@
       })
       .catch(function () { showToast('삭제에 실패했어요.'); });
   };
-  // 감사 인사는 DB에 상태를 안 남겨서(위 handleThankGift 주석 참고) "이미 보냈는지"를 이
-  // 세션 동안만 로컬에서 기억한다 - 새로고침하면 다시 누를 수 있지만, 반복 클릭으로 같은
-  // 사람한테 알림이 여러 번 가는 것 정도만 막아주면 충분하다.
+  // "이미 보냈는지"를 서버(contributions.thanked_at)에 영구 기록한다 - 예전엔 세션에만
+  // 남겨서 새로고침하면 다시 누를 수 있었다(중복 알림 가능성). 낙관적으로 로컬 위시의
+  // 해당 contribution을 바로 thanked로 바꿔 보여주고, 실패하면 되돌린다.
   window.sendThankYou = function (wishId, contributionId) {
-    if (state.ui.thankedContributions[contributionId]) return;
-    state.ui.thankedContributions[contributionId] = true;
+    var wish = state.wishes.filter(function (w) { return w.id === wishId; })[0];
+    var contribution = wish && (wish.contributions || []).filter(function (c) { return c.id === contributionId; })[0];
+    if (!contribution || contribution.thanked) return;
+    contribution.thanked = true;
     render();
     fetch(API_BASE + '/api/wishes/' + encodeURIComponent(wishId) + '/gift/' + encodeURIComponent(contributionId) + '/thanks', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ user_id: state.user.id }),
-    }).catch(function () { showToast('감사 인사 전송에 실패했어요.'); });
+    })
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('thanks failed')); })
+      .catch(function () {
+        contribution.thanked = false;
+        showToast('감사 인사 전송에 실패했어요.');
+        render();
+      });
   };
   window.setWishCommentDraft = function (el) { state.ui.wishCommentDraft = el.value; };
   // goal_type='comments' 목표(댓글수)를 위해 돈 없이도 남길 수 있는 댓글 - 기존 응원 방명록은
@@ -1738,20 +1749,31 @@
   // 카테고리엔 꼭 속해야 한다.
   function wishCategoryKey(w) { return w.category || 'etc'; }
 
+  // 이 위시에 내가 선물을 보냈거나 관심 등록(❤️)했으면 "참여했다"고 친다 - 내가 만든
+  // 위시 자체는 마이페이지에 이미 따로 모아 보여주니 여기엔 안 넣는다.
+  function isWishParticipated(w) {
+    return !!w.following || (w.contributions || []).some(function (c) { return c.fromUserId === state.user.id; });
+  }
+
   function renderHome() {
     var query = (state.ui.homeSearch || '').trim().toLowerCase();
     var isTrending = state.ui.categoryFilter === 'trending';
     var filtered = state.wishes.filter(function (w) {
       if (!isTrending && state.ui.categoryFilter !== 'all' && wishCategoryKey(w) !== state.ui.categoryFilter) return false;
+      if (state.ui.onlyMine && !isWishParticipated(w)) return false;
       if (!query) return true;
       return (w.title || '').toLowerCase().indexOf(query) >= 0 ||
         (w.subtitle || '').toLowerCase().indexOf(query) >= 0 ||
         wishOwnerLabel(w).toLowerCase().indexOf(query) >= 0;
     });
     // 급상승 = 후원자 수 많은 순 정렬 (와디즈/텀블벅의 인기 랭킹과 같은 개념) - 별도
-    // "인기도" 점수 없이 지금 데이터(기여 목록)만으로 바로 계산할 수 있다.
+    // "인기도" 점수 없이 지금 데이터(기여 목록)만으로 바로 계산할 수 있다. 급상승이
+    // 아닐 때만 정렬 드롭다운(최신순/마감임박순)을 따로 적용한다 - state.wishes는 이미
+    // 서버에서 최신순(created_at DESC)으로 와서 "최신순"은 별도 정렬이 필요 없다.
     if (isTrending) {
       filtered = filtered.slice().sort(function (a, b) { return uniqueBackerCount(b) - uniqueBackerCount(a); });
+    } else if (state.ui.sortMode === 'deadline') {
+      filtered = filtered.slice().sort(function (a, b) { return new Date(a.deadline) - new Date(b.deadline); });
     }
     var searchBar = '<div style="padding:0 16px 8px;">' +
       '<input id="home-search-input" type="text" placeholder="🔍 위시 제목, 소개, 만든 사람 검색" value="' + esc(state.ui.homeSearch) + '" oninput="onHomeSearchInput(this)" ' +
@@ -1761,7 +1783,16 @@
     // 배지를 안 붙인다.
     var categoryCounts = {};
     state.wishes.forEach(function (w) { var k = wishCategoryKey(w); categoryCounts[k] = (categoryCounts[k] || 0) + 1; });
-    var totalLine = '<div style="padding:0 16px 8px; font-size:11.5px; color:var(--text-sub); font-weight:700;">전체 <b style="color:var(--text); font-weight:900;">' + state.wishes.length + '개</b>의 위시가 등록되어 있어요</div>';
+    var totalLine = '<div style="padding:0 16px 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">' +
+      '<span style="font-size:11.5px; color:var(--text-sub); font-weight:700;">전체 <b style="color:var(--text); font-weight:900;">' + state.wishes.length + '개</b>의 위시가 등록되어 있어요</span>' +
+      '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">' +
+        '<button class="chip' + (state.ui.onlyMine ? ' active' : '') + '" onclick="toggleOnlyMine()">👤 참여한 것만</button>' +
+        '<select onchange="setSortMode(this.value)" style="padding:6px 10px; border-radius:999px; border:none; background:#F0EEE7; color:var(--text-sub); font-size:12px; font-weight:700;">' +
+          '<option value="latest"' + (state.ui.sortMode !== 'deadline' ? ' selected' : '') + '>최신순</option>' +
+          '<option value="deadline"' + (state.ui.sortMode === 'deadline' ? ' selected' : '') + '>마감임박순</option>' +
+        '</select>' +
+      '</div>' +
+    '</div>';
     var chips = CATEGORY_FILTERS.map(function (c) {
       var count = c.type === 'all' ? state.wishes.length : c.type === 'trending' ? null : (categoryCounts[c.type] || 0);
       var badge = count === null ? '' : '<span class="cnt-badge">' + count + '</span>';
@@ -1771,7 +1802,9 @@
       ? '<div class="empty-state">⏳<br/>위시 불러오는 중...</div>'
       : (filtered.length ? filtered.map(wishCardHtml).join('') : query
           ? '<div class="empty-state">🔍<br/>검색 결과가 없어요</div>'
-          : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요<br/>+ 버튼으로 첫 위시를 만들어보세요!</div>');
+          : state.ui.onlyMine
+            ? '<div class="empty-state">👤<br/>아직 참여한 위시가 없어요<br/>선물을 보내거나 관심 등록을 해보세요!</div>'
+            : '<div class="empty-state">🎁<br/>이 카테고리엔 아직 위시가 없어요<br/>+ 버튼으로 첫 위시를 만들어보세요!</div>');
     return cheerTickerHtml() + searchBar + totalLine + '<div class="scroll-x">' + chips + '</div>' + cards;
   }
 
@@ -1779,11 +1812,14 @@
     if (!state.notifications.length) return '<div class="empty-state">🔔<br/>아직 알림이 없어요</div>';
     var icons = { gift_arrived: '🎉', gift_rejected: '↩️', thank_you: '💌', wish_update: '📣', dday_soon: '⏰', cheer_comment: '💬', chat_message: '💬' };
     var clearAllRow = '<div style="display:flex; justify-content:flex-end; padding:10px 16px 0;"><button onclick="clearAllNotifications()" style="background:none; border:none; color:var(--text-sub); font-size:12px; font-weight:700; cursor:pointer;">모두 지우기</button></div>';
+    // 어떤 위시/누구인지 텍스트만 보고 훑기 번거로웠다 - 해당 위시를 찾을 수 있으면(내
+    // 화면에 이미 로드돼 있는 위시라면) 이모지를 문구 앞에 작게 붙여 스캔이 쉽게 한다.
     return clearAllRow + state.notifications.map(function (n) {
+      var relatedWish = n.wishId ? state.wishes.filter(function (w) { return w.id === n.wishId; })[0] : null;
       return '' +
         '<div class="notif-item' + (n.read ? '' : ' unread') + '">' +
           '<div class="ic" onclick="markNotifRead(\'' + n.id + '\')">' + (icons[n.type] || '🔔') + '</div>' +
-          '<div class="txt" style="flex:1;" onclick="markNotifRead(\'' + n.id + '\')">' + esc(n.text) + '<div class="time">' + timeAgo(n.at) + '</div></div>' +
+          '<div class="txt" style="flex:1;" onclick="markNotifRead(\'' + n.id + '\')">' + (relatedWish ? relatedWish.emoji + ' ' : '') + esc(n.text) + '<div class="time">' + timeAgo(n.at) + '</div></div>' +
           '<button class="icon-btn" style="width:24px; height:24px; font-size:11px; flex-shrink:0;" onclick="deleteNotification(\'' + n.id + '\')">✕</button>' +
         '</div>';
     }).join('');
@@ -1827,6 +1863,12 @@
     var myGifts = computeMyGiftStats();
     var totalAmount = myGifts.reduce(function (s, g) { return s + g.amount; }, 0);
     var myWishes = state.wishes.filter(isWishMine);
+    // "보낸 선물/금액"뿐이라 내가 받은 것/내 위시 전체 상황은 마이페이지에서 알 수가
+    // 없었다 - 내 위시들에 모인 후원과 평균 진행률도 함께 보여준다.
+    var receivedGifts = [];
+    myWishes.forEach(function (w) { (w.contributions || []).forEach(function (c) { receivedGifts.push(c); }); });
+    var receivedAmount = receivedGifts.reduce(function (s, c) { return s + c.amount; }, 0);
+    var avgProgress = myWishes.length ? Math.round(myWishes.reduce(function (s, w) { return s + goalProgress(w).pct; }, 0) / myWishes.length) : 0;
     var layout = state.customization.profileLayout;
     // 익명 신원이라 "나"라는 이름 그대로면 다른 사람이 나를 못 알아본다 - 이름을 직접 정할 수
     // 있게 한다 (여기서 정한 이름이 내가 만드는 위시/보내는 선물에 그대로 붙어 나간다).
@@ -1841,10 +1883,16 @@
     // 로그인 게이트 때문에 마이페이지에 도달했다는 건 이미 카카오 로그인 상태라는 뜻이라,
     // 예전에 있던 "로그인 안 했을 때" 분기는 더는 도달할 일이 없다.
     var kakaoBlock = '<div style="display:flex; align-items:center; gap:6px; padding:0 16px 16px;"><span class="chip" style="background:#FEE500; color:#3C1E1E;">💬 카카오 계정</span><button class="chip" onclick="logoutFromKakao()" style="background:none; border:1px solid var(--border); color:var(--text-sub);">로그아웃</button></div>';
+    function statCard(label, value) {
+      return '<div style="background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">' + label + '</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + value + '</div></div>';
+    }
     var statCards = '' +
-      '<div style="display:flex; gap:10px; padding:0 16px 16px;">' +
-        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 선물</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + myGifts.length + '건</div></div>' +
-        '<div style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; text-align:center;"><div style="font-size:11px; color:var(--text-sub); font-weight:700;">보낸 금액</div><div style="font-size:18px; font-weight:900; margin-top:4px; font-variant-numeric:tabular-nums;">' + formatWon(totalAmount) + '</div></div>' +
+      '<div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; padding:0 16px 16px;">' +
+        statCard('보낸 선물', myGifts.length + '건') +
+        statCard('보낸 금액', formatWon(totalAmount)) +
+        statCard('받은 선물', receivedGifts.length + '건') +
+        statCard('받은 금액', formatWon(receivedAmount)) +
+        statCard('내 위시 평균 진행률', avgProgress + '%') +
       '</div>';
     var myWishSection = '<div style="padding:0 16px 6px; font-size:13px; font-weight:900;">내 위시 (' + myWishes.length + ')</div>' +
       (myWishes.length ? myWishes.map(wishCardHtml).join('') : '<div class="empty-state">아직 만든 위시가 없어요<br/>홈에서 + 버튼을 눌러보세요</div>');
@@ -1912,18 +1960,21 @@
     var timelineEntries = wish.contributions.map(function (c) { return { kind: 'gift', at: c.at, data: c }; })
       .concat((wish.comments || []).map(function (cm) { return { kind: 'comment', at: cm.at, data: cm }; }))
       .sort(function (a, b) { return new Date(b.at) - new Date(a.at); });
+    // 금액 후원과 무료 댓글이 시간순으로 한 목록에 섞이는데, 이전엔 둘 다 똑같이 생겨서
+    // "이것도 후원인가?" 헷갈렸다 - 후원엔 연한 노란 배경 + 💰 뱃지를, 댓글엔 💬 뱃지를
+    // 붙여 한눈에 구분되게 한다.
     var timeline = timelineEntries.length
       ? timelineEntries.map(function (entry) {
           if (entry.kind === 'comment') {
             var cm = entry.data;
             var canDeleteComment = cm.fromUserId && cm.fromUserId === state.user.id;
-            return '<div class="cheer-item"><span class="who">' + esc(cm.fromName) + '</span><span class="msg">' + esc(cm.text) + '</span>' +
+            return '<div class="cheer-item"><span class="kind-badge">💬</span><span class="who">' + esc(cm.fromName) + '</span><span class="msg">' + esc(cm.text) + '</span>' +
               (canDeleteComment ? '<button onclick="deleteWishComment(\'' + wish.id + '\', \'' + cm.id + '\')" style="background:none; border:none; color:var(--text-sub); font-size:10.5px; padding:2px 0 2px 6px; cursor:pointer; white-space:nowrap;">삭제</button>' : '') +
             '</div>';
           }
           var c = entry.data;
-          var thanked = !!state.ui.thankedContributions[c.id];
-          return '<div class="cheer-item"><span class="who">' + esc(c.fromName) + '</span><span class="msg">' + esc(c.message || '') + '</span><span class="amt">' + formatWon(c.amount) + '</span>' +
+          var thanked = !!c.thanked;
+          return '<div class="cheer-item" style="background:#FFFBEF; border-radius:10px; padding:9px 8px;"><span class="kind-badge">💰</span><span class="who">' + esc(c.fromName) + '</span><span class="msg">' + esc(c.message || '') + '</span><span class="amt">' + formatWon(c.amount) + '</span>' +
             (isMine ? '' +
               '<button onclick="sendThankYou(\'' + wish.id + '\', \'' + c.id + '\')" ' + (thanked ? 'disabled' : '') + ' style="background:none; border:none; color:' + (thanked ? 'var(--text-sub)' : 'var(--primary)') + '; font-size:10.5px; padding:2px 0 2px 6px; cursor:' + (thanked ? 'default' : 'pointer') + '; white-space:nowrap;">' + (thanked ? '💌 전송됨' : '💌 고마워요') + '</button>' +
               '<button onclick="rejectGift(\'' + wish.id + '\', \'' + c.id + '\')" style="background:none; border:none; color:var(--danger); font-size:10.5px; padding:2px 0 2px 6px; cursor:pointer; white-space:nowrap;">거절</button>'
@@ -2049,7 +2100,6 @@
     // 비공개면 어차피 남이 못 보니 초대/공유 버튼은 의미가 없어져서(눌러도 상대방 화면엔
     // 아무것도 안 뜸) 헷갈리지 않게 아예 숨긴다.
     var ownerActions = isMine ? '' +
-      '<div class="option-item' + (wish.isPrivate ? ' active' : '') + '" onclick="toggleWishPrivate(\'' + wish.id + '\', ' + (wish.isPrivate ? 'true' : 'false') + ')"><span>🔒 나만 보기 (비공개)</span><button class="toggle' + (wish.isPrivate ? ' on' : '') + '"></button></div>' +
       (!wish.isPrivate ? '' +
         '<button class="btn-primary" style="margin-top:4px;" onclick="shareInviteViaKakao(\'' + wish.id + '\')">💬 카카오톡으로 공유하기</button>' +
         '<button class="btn-ghost" style="margin-top:4px;" onclick="copyInviteLink(\'' + wish.id + '\')">🔗 링크 복사</button>' +
@@ -2075,6 +2125,9 @@
       '<div class="detail-page">' +
         '<div class="sheet-head"><button class="icon-btn" onclick="closeWishDetail()">←</button><h2>' + wish.emoji + ' ' + esc(wish.title) + (wish.isPrivate ? ' 🔒' : '') + '</h2><div style="display:flex; gap:4px; flex-shrink:0;">' +
           (isMine && !editing ? '<button class="icon-btn" onclick="startEditWish(\'' + wish.id + '\')">✏️</button>' : '') +
+          // "나만 보기"가 예전엔 하단(공유 버튼들 사이)에 묻혀 있어 찾기 어려웠다 - 편집
+          // 버튼 옆으로 옮겨서 상세를 열자마자 바로 눈에 띄게 한다.
+          (isMine && !editing ? '<button class="icon-btn" title="' + (wish.isPrivate ? '공개로 전환' : '비공개로 전환') + '" onclick="toggleWishPrivate(\'' + wish.id + '\', ' + (wish.isPrivate ? 'true' : 'false') + ')">' + (wish.isPrivate ? '🔒' : '🔓') + '</button>' : '') +
           '<button class="icon-btn" onclick="toggleFollow(\'' + wish.id + '\', ' + (wish.following ? 'true' : 'false') + ')">' + (wish.following ? '❤️' : '🤍') + '</button>' +
         '</div></div>' +
         (wish.followerCount ? '<div style="font-size:11px; color:var(--text-sub); text-align:right; margin-top:-8px;">❤️ ' + wish.followerCount + '명이 관심 등록했어요</div>' : '') +

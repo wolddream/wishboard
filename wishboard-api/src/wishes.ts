@@ -45,6 +45,7 @@ interface ContributionRow {
 	message: string | null;
 	anonymous: number;
 	created_at: string;
+	thanked_at: string | null;
 }
 interface CommentRow {
 	id: string;
@@ -149,6 +150,7 @@ function wishRowToClient(
 			message: c.message || "",
 			anonymous: !!c.anonymous,
 			at: c.created_at,
+			thanked: !!c.thanked_at,
 		})),
 	};
 }
@@ -186,7 +188,7 @@ export async function handleGetWishes(env: Env, userId?: string | null): Promise
 		)
 			.bind(...ids)
 			.all<MemberRow>(),
-		env.DB.prepare(`SELECT id, wish_id, item_id, from_user_id, from_name, amount, message, anonymous, created_at FROM contributions WHERE wish_id IN (${placeholders}) ORDER BY created_at DESC`)
+		env.DB.prepare(`SELECT id, wish_id, item_id, from_user_id, from_name, amount, message, anonymous, created_at, thanked_at FROM contributions WHERE wish_id IN (${placeholders}) ORDER BY created_at DESC`)
 			.bind(...ids)
 			.all<ContributionRow>(),
 		env.DB.prepare(`SELECT id, wish_id, name, link, image_url, note, pledge, goal_amount, current_amount, goal_type, goal_count FROM wish_items WHERE wish_id IN (${placeholders}) ORDER BY sort_order, created_at`)
@@ -692,15 +694,27 @@ export async function handleThankGift(request: Request, env: Env, wishId: string
 	if (!wish) return json({ error: "wish not found" }, 404);
 	if (wish.owner_id !== body.user_id) return json({ error: "권한이 없어요" }, 403);
 
-	const contribution = await env.DB.prepare(`SELECT from_user_id FROM contributions WHERE id = ? AND wish_id = ?`)
+	const contribution = await env.DB.prepare(`SELECT from_user_id, thanked_at FROM contributions WHERE id = ? AND wish_id = ?`)
 		.bind(contributionId, wishId)
-		.first<{ from_user_id: string | null }>();
+		.first<{ from_user_id: string | null; thanked_at: string | null }>();
 	if (!contribution) return json({ error: "contribution not found" }, 404);
-	if (!contribution.from_user_id || contribution.from_user_id === wish.owner_id) return json({ ok: true });
+	// 세션에만 남기던 "이미 보냈는지"를 서버에 영구 기록한다 - 새로고침해도 다시 누를 수 있게
+	// 보이던(그래서 중복 알림이 갈 수 있던) 문제를 없앤다.
+	if (contribution.thanked_at) return json({ ok: true, alreadyThanked: true });
+	if (!contribution.from_user_id || contribution.from_user_id === wish.owner_id) {
+		await env.DB.prepare(`UPDATE contributions SET thanked_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(contributionId).run();
+		return json({ ok: true });
+	}
 
-	await env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'thank_you', ?, ?)`)
-		.bind(uid("n"), contribution.from_user_id, wishId, `"${wish.title}"에 보낸 후원에 고마움을 전했어요 💌`)
-		.run();
+	await env.DB.batch([
+		env.DB.prepare(`UPDATE contributions SET thanked_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(contributionId),
+		env.DB.prepare(`INSERT INTO notifications (id, user_id, type, wish_id, text) VALUES (?, ?, 'thank_you', ?, ?)`).bind(
+			uid("n"),
+			contribution.from_user_id,
+			wishId,
+			`"${wish.title}"에 보낸 후원에 고마움을 전했어요 💌`
+		),
+	]);
 
 	return json({ ok: true });
 }

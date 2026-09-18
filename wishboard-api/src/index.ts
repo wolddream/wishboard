@@ -41,8 +41,7 @@
  * this worker serves uploaded images itself via GET /r2/:key)
  *
  * DB MIGRATION NEEDED before this deploys:
- *   ALTER TABLE wish_items ADD COLUMN goal_type TEXT NOT NULL DEFAULT 'money';
- *   ALTER TABLE wish_items ADD COLUMN goal_count INTEGER;
+ *   ALTER TABLE contributions ADD COLUMN thanked_at DATETIME;
  * (run once against the live D1 database - schema.sql is only applied on fresh setup, not on every deploy.
  * wishes.goal_type/goal_count from an earlier migration are no longer used - goal type moved from the
  * whole wish to per-item, since different items in one wish can now pursue different goals)
