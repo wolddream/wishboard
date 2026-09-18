@@ -21,6 +21,8 @@
     --border: #ECE8DF;
     --mint: #2DD4A0;
     --danger: #FF5C5C;
+    --gift-btn-bg: #C4AEEF;
+    --gift-btn-text: #3D2B63;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--bg); }
@@ -433,12 +435,15 @@
     return BANNED_WORDS.some(function (w) { return normalized.indexOf(w.toLowerCase()) >= 0; });
   }
 
+  // giftBg/giftText: "선물하기" 버튼 전용 보조 강조색 - 테마 primary(카카오톡 공유하기 등에
+  // 쓰임)와 헷갈리지 않게 항상 그 테마와 대비되는 색으로 테마별로 따로 정해둔다(예: 라벤더
+  // 테마에서 선물하기까지 보라색이면 구분이 안 된다).
   var THEME_COLORS = [
-    { id: 'kakao', label: '카카오 옐로우', primary: '#FEE500', text: '#3C1E1E' },
-    { id: 'butter', label: '버터 크림', primary: '#FFE9B8', text: '#5A4321' },
-    { id: 'midnight', label: '미드나잇 다크', primary: '#2B2A4A', text: '#FFFFFF' },
-    { id: 'lavender', label: '라벤더 미스트', primary: '#C9B6E4', text: '#3A2C52' },
-    { id: 'mint', label: '소프트 민트', primary: '#B8E8D8', text: '#1C4B3B' },
+    { id: 'kakao', label: '카카오 옐로우', primary: '#FEE500', text: '#3C1E1E', giftBg: '#C4AEEF', giftText: '#3D2B63' },
+    { id: 'butter', label: '버터 크림', primary: '#FFE9B8', text: '#5A4321', giftBg: '#E8A9D0', giftText: '#5C2A44' },
+    { id: 'midnight', label: '미드나잇 다크', primary: '#2B2A4A', text: '#FFFFFF', giftBg: '#F2B8D6', giftText: '#5C2A44' },
+    { id: 'lavender', label: '라벤더 미스트', primary: '#C9B6E4', text: '#3A2C52', giftBg: '#F7C59F', giftText: '#6B3D14' },
+    { id: 'mint', label: '소프트 민트', primary: '#B8E8D8', text: '#1C4B3B', giftBg: '#F4A6C1', giftText: '#5C2A44' },
   ];
   var PROFILE_LAYOUTS = [
     { id: 'bento', label: '모던 벤토' },
@@ -624,6 +629,8 @@
     var theme = THEME_COLORS.filter(function (t) { return t.id === state.customization.themeColor; })[0] || THEME_COLORS[0];
     document.documentElement.style.setProperty('--primary', theme.primary);
     document.documentElement.style.setProperty('--primary-text', theme.text);
+    document.documentElement.style.setProperty('--gift-btn-bg', theme.giftBg);
+    document.documentElement.style.setProperty('--gift-btn-text', theme.giftText);
   }
 
   // ============ Render engine (focus/selection preserving full re-render) ============
@@ -2048,7 +2055,7 @@
           '<div class="option-item' + (draft.anonymous ? ' active' : '') + '" onclick="toggleGiftAnonymous()"><span>🙈 익명으로 보내기</span><button class="toggle' + (draft.anonymous ? ' on' : '') + '"></button></div>' +
           '<div style="display:flex; gap:8px;">' +
             '<button class="btn-ghost" style="flex:1;" onclick="closeItemGift()">취소</button>' +
-            '<button class="btn-primary" style="flex:2; background:#C4AEEF; color:#3D2B63;" ' + (state.ui.sendingGift ? 'disabled' : '') + ' onclick="sendGift()">' + (state.ui.sendingGift ? '⏳ 보내는 중...' : '💜 카카오페이로 보태기') + '</button>' +
+            '<button class="btn-primary" style="flex:2; background:var(--gift-btn-bg); color:var(--gift-btn-text);" ' + (state.ui.sendingGift ? 'disabled' : '') + ' onclick="sendGift()">' + (state.ui.sendingGift ? '⏳ 보내는 중...' : '💜 카카오페이로 보태기') + '</button>' +
           '</div>' +
         '</div>' : '';
 
@@ -2072,8 +2079,8 @@
             '</div>' +
             itemOwnerActions +
           '</div>' +
-          // "카카오톡으로 공유하기"와 같은 노란색이라 헷갈렸다 - 선물하기는 연보라로 구분.
-          (!isOpen ? '<button class="btn-primary" style="width:100%; margin-top:8px; background:#C4AEEF; color:#3D2B63;" onclick="openItemGift(\'' + item.id + '\')">💜 이 아이템에 선물하기</button>' : '') +
+          // "카카오톡으로 공유하기"와 같은 테마색이라 헷갈렸다 - 선물하기는 테마별 보조색(giftBg)으로 구분.
+          (!isOpen ? '<button class="btn-primary" style="width:100%; margin-top:8px; background:var(--gift-btn-bg); color:var(--gift-btn-text);" onclick="openItemGift(\'' + item.id + '\')">💜 이 아이템에 선물하기</button>' : '') +
           giftHere +
         '</div>';
     }
